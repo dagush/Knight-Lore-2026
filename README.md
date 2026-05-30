@@ -5,7 +5,7 @@ on the JSSpeccy 3 emulator for the browser (available at
 https://github.com/gasman/jsspeccy3)
 
 Now, this project is simply a rewrite of the work originally done by Ricard 
-Galvany. You can find the original project, called Knighht Lore 
+Galvany. You can find the original project, called Knight Lore 
 2006, here:
 https://ima.udg.edu/~dagush/Projects/KnightLore2006/
 
