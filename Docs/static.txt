@@ -1,0 +1,284 @@
+Knight Lore static data reference
+=================================
+
+Source analysed:
+- Knight Lore Data Format PDF, 2016-06-26, icemark.com/dataformats/knightlore/
+- Local sanity checks used the test snapshot in _tests/Knight Lore (1984)(Ultimate).z80.
+
+Purpose
+-------
+Static ROM/game data is used to build the 0x5BA0..0x6107 work-memory room
+state. For room layout, colour, and walls, the important path is:
+
+current room id -> locations table -> room size/attribute byte
+                -> background type ids for walls/decor
+                -> block type ids and block positions for objects/solid layout
+
+Known work-memory anchors
+-------------------------
+- 0x5BA0..0x6107: scratch/work memory.
+- 0x5C10: current room id (document gives 0x5C08 + 0x08).
+- 0x5BAD: current room colour/attribute in work memory.
+- 0x5BAB, 0x5BAC, 0x5BAE: current room size X, Y, Z in work memory.
+- 0x5C88: current parser's dynamic room/object start candidate.
+- 0xD8F3: work screen / linear screen buffer.
+
+Static table map
+----------------
+- 0x6248..0x6250: room size table, 3 entries x 3 bytes.
+- 0x6251..0x6BD0: locations table.
+- 0x6BD1..0x6C0A: block type offset table, WORD entries.
+- 0x6C0B..0x6CE1: block type data.
+- 0x6CE2..0x6D11: background type offset table, WORD entries.
+- 0x6D12..0x6F2E: background type data.
+- 0x6FF2..0x7111: collectable/static objects table.
+- 0x7112..0x7289: sprite offset table, WORD entries.
+- 0x728A..0xAF6B: sprite data.
+- 0xAF6C..0xD8F3: code.
+
+Coordinate model
+----------------
+- Rooms live on a 16 x 16 location grid.
+- Location movement by room id is implicit:
+  - north: +16
+  - south: -16
+  - west: -1
+  - east: +1
+- Block grid cell size is 16 x 16 x 12 pixels.
+- Block position byte layout:
+  - bits 7..6: z
+  - bits 5..3: y
+  - bits 2..0: x
+- High-resolution placement:
+  - Xh = x * 16 + x1 * 8 + 72
+  - Yh = y * 16 + y1 * 8 + 72
+  - Zh = z * 12 + z1 * 4 + ScreenZ
+- Project notes say ScreenZ is always 128.
+- x1, y1, z1 come from block type data byte 05:
+  - bits 7..2: z1
+  - bit 1: y1
+  - bit 0: x1
+
+Room size table
+---------------
+PDF format for each entry:
+- byte 0: x
+- byte 1: y
+- byte 2: z
+
+Snapshot bytes at 0x6248:
+- selector 0: x=0x40, y=0x40, z=0x80
+- selector 1: x=0x20, y=0x40, z=0x80
+- selector 2: x=0x40, y=0x20, z=0x80
+
+Strict note: keep these as raw size bytes until the renderer/room builder
+confirms whether they are direct work-memory size values, pixel extents, or
+another game-specific dimension convention.
+
+Locations table decoder
+-----------------------
+The locations table is a variable-length list of used screens. Entries are not
+stored in 16 x 16 grid order; scan by room id.
+
+Entry structure at pointer p:
+- p + 0: screen id.
+- p + 1: size byte.
+- p + 2: room size and attribute.
+- p + 3 onward: background type ids until 0xFF.
+- after 0xFF: block runs until the end of this location entry.
+
+Verified stride against local snapshot:
+- next entry pointer = p + 1 + size.
+- This yields 128 entries and ends exactly at 0x6BD1.
+
+Room size/attribute byte:
+- bits 7..3: room size selector.
+- bits 2..0: room attribute.
+- Actual snapshot selectors are 0, 1, 2.
+- Actual snapshot attributes are 3, 4, 5, 6.
+
+Colour recommendation:
+- The PDF says "attribute", not "colour".
+- For current work, treat attr = byte & 0x07 as the candidate room colour.
+- Add a runtime assertion/check: workMem[0x5BAD] should match the location
+  entry attribute for the current room before renaming it as authoritative
+  colour everywhere.
+
+Background list in a location entry
+-----------------------------------
+Background type ids before the 0xFF terminator are the main source for walls,
+arches, portcullises, tree rooms, wizard/cauldron, and other fixed decor.
+Do not infer walls from room size alone; the background list is authoritative.
+
+Background offset table:
+- 0x6CE2 contains WORD pointers.
+- Local snapshot confirms these are absolute little-endian addresses into
+  0x6D12.., not relative offsets.
+
+Background type data format at the resolved pointer:
+- byte 0: sprite.
+- byte 1: x.
+- byte 2: y.
+- byte 3: z.
+- byte 4: width x.
+- byte 5: depth y.
+- byte 6: height z.
+- byte 7: flags:
+  - bit 7: flip vertical.
+  - bit 6: flip horizontal.
+  - bit 4: draw, internal, seems always set.
+  - other bits are not explained by the PDF.
+- Keep reading records until sprite == 0. All records before the zero belong
+  to one background entity.
+
+Background types
+----------------
+- 0x00: arch north
+- 0x01: arch east
+- 0x02: arch south
+- 0x03: arch west
+- 0x04: tree arch north
+- 0x05: tree arch east
+- 0x06: tree arch south
+- 0x07: tree arch west
+- 0x08: portcullis north
+- 0x09: portcullis east
+- 0x0A: portcullis south
+- 0x0B: portcullis west
+- 0x0C: wall room size 1
+- 0x0D: wall room size 2
+- 0x0E: wall room size 3
+- 0x0F: tree room size 1
+- 0x10: tree filler west
+- 0x11: tree filler north
+- 0x12: wizard
+- 0x13: cauldron
+- 0x14: high arch east
+- 0x15: high arch south
+- 0x16: high arch east base
+- 0x17: high arch south base
+
+Wall-specific notes
+-------------------
+- Normal wall presets are 0x0C, 0x0D, 0x0E.
+- Tree-room preset is 0x0F; tree fillers are 0x10 and 0x11.
+- Snapshot count in 128 rooms:
+  - 0x0C appears in 46 location background lists.
+  - 0x0D appears in 24 location background lists.
+  - 0x0E appears in 34 location background lists.
+  - 0x0F appears in 24 location background lists.
+- Arches and portcullises are explicit background entries, so wall openings
+  should be decoded from the background list, not guessed from neighbour rooms.
+
+Block runs in a location entry
+------------------------------
+After the 0xFF background terminator, repeat until the entry end:
+- header byte:
+  - bits 7..3: block type id.
+  - bits 2..0: count field.
+- then count + 1 position bytes follow.
+- each position byte uses z/y/x bitfields described above.
+
+Block offset table:
+- 0x6BD1 contains WORD pointers.
+- Local snapshot confirms these are absolute little-endian addresses into
+  0x6C0B..0x6CE1.
+
+Block type data format at the resolved pointer:
+- byte 0: sprite.
+- byte 1: width x.
+- byte 2: depth y.
+- byte 3: height z.
+- byte 4: flags:
+  - bit 7: flip vertical.
+  - bit 6: flip horizontal.
+  - bit 4: draw, internal, seems always set.
+  - bit 2: movable/moving.
+  - bits 0..3 are partly block-type dependent per the PDF.
+- byte 5: z1/y1/x1 offset bits used by the high-resolution formula.
+- Keep reading records until sprite == 0. All records before the zero belong
+  to one block entity.
+
+Block types
+-----------
+- 0x00: sprite 0x07, block
+- 0x01: sprite 0xB0, fire, unused
+- 0x02: sprite 0xB2, ball moving up/down, offset half block y
+- 0x03: sprite 0x06, rock
+- 0x04: sprite 0x16, gargoyle
+- 0x05: sprite 0x17, spike block
+- 0x06: sprite 0x55, pushable and slide chest
+- 0x07: sprite 0x54, pushable table
+- 0x08: sprites 0x96/0x90, guard moving east/west
+- 0x09: sprite 0x52, ghost
+- 0x0A: sprite 0xB5, fire moving north/south
+- 0x0B: sprite 0x07, block high
+- 0x0C: sprite 0xB2, ball moving up/down, offset half block x and y
+- 0x0D: sprites 0x1E/0x90, guard patrolling square circuit
+- 0x0E: sprite 0x36, block moving east/west
+- 0x0F: sprite 0x37, block moving north/south
+- 0x10: sprite 0x3E, movable block
+- 0x11: sprite 0x17, spike block high
+- 0x12: sprite 0x3F, spike ball fall
+- 0x13: sprite 0x3F, spike ball high fall
+- 0x14: sprite 0x56, fire moving east/west
+- 0x15: sprite 0x5B, dropping block
+- 0x16: sprite 0x8F, collapsing block
+- 0x17: sprite 0xB6, ball bouncing around
+- 0x18: sprite 0xB2, ball up/down
+- 0x19: sprite 0xA4, spell that repels player
+- 0x1A: sprite 0x08, portcullis moving up/down
+- 0x1B: sprite 0x08, portcullis moving up/down
+- 0x1C: sprite 0xB2, ball moving up/down, offset half block x
+
+Static objects table
+--------------------
+0x6FF2 object records:
+- byte 0: object graphic no, randomly changed at runtime.
+- byte 1: start x, range 0x46..0xBA.
+- byte 2: start y, range 0x40..0x70 in steps of 0x0C.
+- byte 3: start z, range 0x46..0xBA.
+- byte 4: start screen.
+- byte 5: current x.
+- byte 6: current y.
+- byte 7: current z.
+- byte 8: current screen.
+
+Sprite data
+-----------
+- 0x7112: sprite offset table, WORD entries.
+- 0x728A: sprite data.
+- sprite record:
+  - byte 0: width.
+  - byte 1: height.
+  - following bytes: image/mask pairs.
+  - size = width * height * 2.
+
+Useful next decoder outline
+---------------------------
+1. Read current room id from 0x5C10.
+2. Scan locations from 0x6251:
+   - if mem[p] != currentRoom, p += 1 + mem[p + 1].
+3. Decode room header:
+   - sizeSelector = mem[p + 2] >> 3.
+   - attr = mem[p + 2] & 0x07.
+   - dimensions = roomSizeTable[sizeSelector].
+4. Compare attr with work-memory 0x5BAD before calling it final colour.
+5. Read background ids until 0xFF.
+6. Resolve each background id through 0x6CE2 to reconstruct walls, arches,
+   portcullises, tree fillers, wizard, and cauldron.
+7. Decode remaining block runs to reconstruct solid/static/moving entities.
+8. Compare decoded static output with current work-memory dynamic records
+   around 0x5C88 and size fields at 0x5BAB/0x5BAC/0x5BAE.
+
+Open verification points
+------------------------
+- The PDF labels the low 3 bits of the room header as "attribute"; current
+  project notes call 0x5BAD "color". Recommendation: verify by runtime compare
+  before hardcoding that semantic name.
+- The PDF does not explain every flag bit in block/background records.
+  Recommendation: preserve raw flag bytes and expose named bits only where the
+  PDF explicitly defines them.
+- The PDF gives the data format, not a per-room dump. Recommendation: generate
+  a separate decoded room table later from the actual memory bytes, using this
+  file as the strict decoder reference.

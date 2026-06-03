@@ -1,0 +1,140 @@
+## 2026-05-30 - Local Test Harness and Semantic Hooks
+
+Local test page setup:
+
+- Created `_tests/` as a local sandbox excluded from commits.
+- Added a local test `index.html` that can run JSSpeccy from static files.
+- Confirmed the test page should be served via a local HTTP server rather than opened through `file://`, because Workers, WASM, and fetches need browser-safe URL loading.
+- Built the project locally so `_tests` symlinks had valid targets.
+- Verified that serving `_tests` over HTTP works.
+- The user placed `Knight Lore (1984)(Ultimate).z80` inside `_tests/`.
+- Updated `_tests/index.html` to auto-load that snapshot with `openUrl: 'Knight Lore (1984)(Ultimate).z80'`.
+- The Open button remains available because the normal UI and file-loading path were not disabled.
+- `_tests/` remains ignored by git, so the snapshot and local test changes are not tracked.
+
+Semantic hook implementation:
+
+- Added a worker-side semantic capture hook in `runtime/worker.js`.
+- Defined:
+  - `SEMANTIC_MEMORY_START = 0x5BA0`
+  - `SEMANTIC_MEMORY_END = 0x6108`
+- Added `captureSemanticFrame()`.
+- The semantic frame currently contains:
+  - `memoryStart`
+  - `memoryEnd`
+  - `semanticMemory`
+  - `registers`
+  - `pc`
+  - `tstates`
+  - `iff1`
+  - `iff2`
+  - `im`
+  - `halted`
+- `semanticMemory` is copied with `core.peek(addr)` so extraction follows the mapped Z80 address space.
+- The worker captures this semantic frame after `core.runFrame()` / `core.resumeFrame()` finishes and before posting `frameCompleted`.
+- The semantic frame is included in the `frameCompleted` message sent to the main thread.
+
+Main-thread semantic hook implementation:
+
+- Updated `runtime/jsspeccy.js`.
+- Added support for an optional `opts.onSemanticFrame` callback.
+- In the `frameCompleted` case, if `semanticFrame` is present:
+  - parse it with `extractKnightLoreScene()`,
+  - call `this.onSemanticFrame(e.data.semanticFrame)` when configured,
+  - emit `semanticFrame` on the internal `Emulator` EventEmitter.
+- Passed `opts.onSemanticFrame` from `window.JSSpeccy()` into the internal `Emulator`.
+- Added a facade method on the object returned by `window.JSSpeccy()`:
+  - `onSemanticFrame(callback)`
+
+Verification performed:
+
+- Ran syntax checks with `node --check` on runtime files.
+- Rebuilt local `dist/jsspeccy` bundles used by `_tests`.
+- Confirmed the generated worker and main bundles contain the semantic hook path.
+
+## 2026-06-02 - Knight Lore Parser and Overlay Calibration
+
+Parser extraction layer:
+
+- Added `runtime/knightlore.js` as a pure JavaScript parser for copied Knight Lore RAM snapshots.
+- The parser currently reads from the semantic memory block already captured by the worker.
+- It exposes structured scene data under `semanticFrame.knightLoreScene`.
+- The parser keeps raw RAM values visible and adds derived fields only as explicit diagnostics or overlay helpers.
+
+Player memory mapping updates:
+
+- Body position remains mapped to:
+  - `0x5C09`
+  - `0x5C0A`
+  - `0x5C0B`
+- Head semantic position is mapped according to the student's notes:
+  - `0x5C20`
+  - `0x5C2A`
+  - `0x5C2B`
+- Sprite bytes were renamed from exploratory `spriteA` / `spriteB` labels to:
+  - `player.head.sprite` at `0x5C41`
+  - `player.body.sprite` at `0x5C45`
+- Orientation bytes were renamed from generic orientation flags to mirror flags:
+  - `player.body.mirrorFlag` at `0x5C0F`
+  - `player.head.mirrorFlag` at `0x5C2F`
+
+Coordinate conversion investigation:
+
+- Added the student's low-resolution to high-resolution formulas as diagnostic conversion helpers:
+  - `X_h = X_L * 16 + X_l * 8 + 72`
+  - `Y_h = Y_L * 16 + Y_l * 8 + 72`
+  - `Z_h = Z_L * 12 + Z_l * 4 + 128`
+- Since the exact `X_l`, `Y_l`, and `Z_l` subcell sources have not yet been identified, those values currently default to zero in the diagnostic conversion.
+- The full formula result is preserved in the debug output as a diagnostic value rather than being treated as authoritative for player overlay placement.
+
+Overlay calibration:
+
+- The body marker is visually correct and moves correctly using the existing body coordinate projection.
+- The head semantic X byte at `0x5C20` is retained in the table, but it did not provide correct horizontal movement for the overlay marker.
+- Reintroduced `0x5C29` as an explicit visual/render candidate named `player.head.renderXCandidate`.
+- The head overlay marker now uses:
+  - X from `0x5C29`
+  - Y from `0x5C2A`
+  - Z from `0x5C2B`
+- This is intentionally labeled as an overlay/render candidate and does not replace the semantic head position mapping from the student's notes.
+- The overlay table now shows the head marker source so future tests can distinguish semantic RAM fields from visual comparison fields.
+
+Debug UI updates:
+
+- `_tests/index.html` now displays:
+  - raw body RAM position,
+  - body screen position,
+  - raw head RAM position,
+  - head screen/overlay position,
+  - full-formula diagnostic head position,
+  - sprite and mirror flag bytes.
+- The `Selected Raw Bytes` table is sorted numerically by address rather than by field name.
+- Candidate dynamic sprite records remain selectable from the side panel, with optional overlay markers.
+- The all/none checkbox remains available for candidate record selection.
+- Debug panel updates are throttled separately from overlay updates to keep checkbox responsiveness usable while the emulator is running.
+
+Build and verification:
+
+- Rebuilt the local `dist/jsspeccy` bundles after parser changes.
+- Incremented the `_tests/index.html` cache key during each browser-facing change.
+- Ran syntax checks for:
+  - `runtime/knightlore.js`
+  - the inline script inside `_tests/index.html`
+- The latest local test cache key at the end of this work is:
+  - `knightlore-parser-20260602m`
+
+Current interpretation:
+
+- The semantic extraction hook is working and provides stable per-frame copied RAM.
+- The body marker validates that the current projection can match the original Spectrum framebuffer.
+- The head marker currently validates best when using `0x5C29` as a visual X candidate, while `0x5C20` remains the student's semantic head X address.
+- Further reverse engineering is needed to identify the exact fine-coordinate / sprite-subcell sources used by Knight Lore's renderer.
+
+## 2026-06-02 - Recovery After Accidental Push Cleanup
+
+- Recreated `Plan/` after it was deleted from the workspace.
+- Recreated `Plan/logbook.txt` with the latest known logbook entries.
+- Recreated `Plan/2026 05 29.txt` with the core architectural notes and current memory mapping.
+- Restored `runtime/knightlore.js`.
+- Restored the semantic hooks in `runtime/worker.js` and `runtime/jsspeccy.js`.
+- The original PDF `Plan/Memoria_RicardGalvany.pdf` was not recoverable from the current workspace because it was not tracked and no local copy was found.

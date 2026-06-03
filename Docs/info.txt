@@ -1,0 +1,22 @@
+Coords:
+My student detected that the exact expressions to go from low-resolution integer coordinates, where objects are initialised in memory, are translated to high-resolution coordinates are:
+X_h = X_L * 16 + X_l * 8 + 72
+Y_h = Y_L * 16 + Y_l * 8 + 72
+Z_h = Z_L * 12 + Z_l * 4 + ScreenZ
+Where X_L, Y_L and Z_L are the low resolution coordinates, the _l is information related to the sprites and allow to work with self-moving objects, and ScreenZ is always 128.
+
+Main Character:
+The head location information is located at 5C20h, 5C2Ah and 5C2Bh for X, Y and Z.
+The body location information is at         5C09h, 5C0Ah and 5C0Bh.
+Positions 5C41h and 5C45h indicate the head and body sprite codes.
+Positions 5C0Fh and 5C2Fh contain the mirror flags for orientation.
+
+Current Room
+ id: 5C10h
+ color: 5BADh
+ size: 5BABh, 5BACh and 5BAEh (X, Y, Z)
+ Walls: use static information
+
+Working memory:
+between 5BA0h and 6107h
+
