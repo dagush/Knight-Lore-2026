@@ -8,6 +8,7 @@ import { parseSNAFile, parseZ80File, parseSZXFile } from './snapshot.js';
 import { TAPFile, TZXFile } from './tape.js';
 import { StandardKeyboardHandler, RecreatedZXSpectrumHandler } from './keyboard.js';
 import { AudioHandler } from './audio.js';
+import { extractKnightLoreScene } from './knightlore.js';
 
 import openIcon from './icons/open.svg';
 import resetIcon from './icons/reset.svg';
@@ -50,6 +51,8 @@ class Emulator extends EventEmitter {
         this.nextFileOpenID = 0;
         this.fileOpenPromiseResolutions = {};
 
+        this.onSemanticFrame = opts.onSemanticFrame || null;
+
         this.onReadyHandlers = [];
 
         this.worker.onmessage = (e) => {
@@ -78,6 +81,13 @@ class Emulator extends EventEmitter {
                     // benchmarkRunCount++;
                     if ('audioBufferLeft' in e.data) {
                         this.audioHandler.frameCompleted(e.data.audioBufferLeft, e.data.audioBufferRight);
+                    }
+                    if ('semanticFrame' in e.data) {
+                        e.data.semanticFrame.knightLoreScene = extractKnightLoreScene(e.data.semanticFrame);
+                        if (this.onSemanticFrame) {
+                            this.onSemanticFrame(e.data.semanticFrame);
+                        }
+                        this.emit('semanticFrame', e.data.semanticFrame);
                     }
 
                     this.displayHandler.frameCompleted(e.data.frameBuffer);
@@ -417,6 +427,7 @@ window.JSSpeccy = (container, opts) => {
         autoLoadTapes: opts.autoLoadTapes || false,
         tapeAutoLoadMode: opts.tapeAutoLoadMode || 'default',
         openUrl: opts.openUrl,
+        onSemanticFrame: opts.onSemanticFrame,
         tapeTrapsEnabled: ('tapeTrapsEnabled' in opts) ? opts.tapeTrapsEnabled : true,
         keyboardEnabled: keyboardEnabled,
         keyboardMap: opts.keyboardMap || 'standard',
@@ -725,6 +736,9 @@ window.JSSpeccy = (container, opts) => {
             } else {
                 emu.onReadyHandlers.push(callback);
             }
+        },
+        onSemanticFrame: (callback) => {
+            emu.on('semanticFrame', callback);
         },
         exit: () => {exit();},
     };

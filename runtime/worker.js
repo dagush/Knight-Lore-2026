@@ -12,6 +12,9 @@ let stopped = false;
 let tape = null;
 let tapeIsPlaying = false;
 
+const SEMANTIC_MEMORY_START = 0x5ba0;
+const SEMANTIC_MEMORY_END = 0x6108;
+
 const loadCore = (baseUrl) => {
     WebAssembly.instantiateStreaming(
         fetch(new URL('jsspeccy-core.wasm', baseUrl), {})
@@ -55,6 +58,26 @@ const loadSnapshot = (snapshot) => {
     }
 
     core.setTStates(snapshot.tstates);
+};
+
+const captureSemanticFrame = () => {
+    const semanticMemory = new Uint8Array(SEMANTIC_MEMORY_END - SEMANTIC_MEMORY_START);
+    for (let addr = SEMANTIC_MEMORY_START; addr < SEMANTIC_MEMORY_END; addr++) {
+        semanticMemory[addr - SEMANTIC_MEMORY_START] = core.peek(addr);
+    }
+
+    return {
+        memoryStart: SEMANTIC_MEMORY_START,
+        memoryEnd: SEMANTIC_MEMORY_END,
+        semanticMemory,
+        registers: Array.from(registerPairs),
+        pc: core.getPC(),
+        tstates: core.getTStates(),
+        iff1: core.getIFF1(),
+        iff2: core.getIFF2(),
+        im: core.getIM(),
+        halted: core.getHalted(),
+    };
 };
 
 const trapTapeLoad = () => {
@@ -168,6 +191,7 @@ onmessage = (e) => {
             }
 
             frameData.set(workerFrameData);
+            const semanticFrame = captureSemanticFrame();
             if (audioLength) {
                 const leftSource = new Float32Array(core.memory.buffer, core.AUDIO_BUFFER_LEFT, audioLength);
                 const rightSource = new Float32Array(core.memory.buffer, core.AUDIO_BUFFER_RIGHT, audioLength);
@@ -180,11 +204,13 @@ onmessage = (e) => {
                     frameBuffer,
                     audioBufferLeft,
                     audioBufferRight,
+                    semanticFrame,
                 }, [frameBuffer, audioBufferLeft, audioBufferRight]);
             } else {
                 postMessage({
                     message: 'frameCompleted',
                     frameBuffer,
+                    semanticFrame,
                 }, [frameBuffer]);
             }
 
