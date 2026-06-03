@@ -1,3 +1,48 @@
-/node_modules
-/dist
-/_tests
+# Dependencies
+/node_modules/
+
+# Generated build output
+/dist/
+/build/*.js
+/build/*.ts
+/build/*.wat
+
+# Local sandbox/test harness.
+# Contains local ROM/snapshot copies and generated/symlinked runtime assets.
+/_tests/
+
+# Keep project planning material visible to git.
+!/Plan/
+!/Plan/**
+
+# IDE/editor local state
+/.idea/*
+!/.idea/.gitignore
+/.vscode/
+*.swp
+*.swo
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Coverage/cache output
+/coverage/
+/.cache/
+/.parcel-cache/
+
+# Local game/media dumps outside tracked static assets
+*.z80
+*.sna
+*.tap
+*.tzx
+*.scr
+*.dsk
