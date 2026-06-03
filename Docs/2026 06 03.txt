@@ -1,0 +1,471 @@
+Knight Lore 2026 work plan - 2026-06-03
+=======================================
+
+Source basis
+------------
+This plan is based on:
+- Memoria_RicardGalvany_short.pdf, chapter 5 sections 5.1..5.6.
+- Docs/static.txt.
+- Docs/dynamic.txt.
+- Docs/info.txt.
+- Docs/2026 05 29.txt and Docs/logbook.txt.
+
+Chapter 5 maps the old Knight Lore 2006 implementation into this sequence:
+1. create a second 3D environment beside the emulator.
+2. acquire room data from static tables, working memory, and object/background
+   tables.
+3. initialize the 3D renderer and camera.
+4. draw backgrounds/walls.
+5. draw objects.
+6. draw the main character.
+
+For this browser project, the same idea should be adapted, not copied. The
+original game logic must remain untouched. The emulator should continue to run,
+semantic RAM should be captured after completed frames, and Three.js should use
+the newest verified semantic frame.
+
+Core rule
+---------
+Do not switch off the original Spectrum framebuffer until each semantic layer has
+been validated against it. Work in comparison mode first:
+- original emulator canvas remains visible.
+- semantic/debug overlay remains available.
+- Three.js renderer is added as a second view or optional view.
+- every new 3D feature has an explicit data-verification stage before visual
+  polish.
+
+Stage 0 - Acquisition and renderer foundation
+---------------------------------------------
+
+Goal:
+Build the minimum reliable bridge between emulator state and a Three.js scene,
+without trying to render the full game yet.
+
+Analysis track:
+- Confirm the semantic frame is still captured from 0x5BA0..0x6107 each frame.
+- Decide how static tables will be available to the parser:
+  - 0x6248 room-size table.
+  - 0x6251 locations table.
+  - 0x6BD1 block/object pointer table.
+  - 0x6CE2 background pointer table.
+  - 0x7112 sprite pointer table, if textures are later needed.
+- Recommendation: capture or cache static ranges once after the game snapshot is
+  loaded, rather than copying all static tables every frame.
+- Keep room-level working-memory anchors:
+  - room id: 0x5C10.
+  - room colour/attribute: 0x5BAD.
+  - room size bytes: 0x5BAB, 0x5BAC, 0x5BAE.
+
+Three.js track:
+- Add a Three.js view only after the data path is confirmed.
+- Keep it visually simple at first: solid background, grid/floor axes, fixed
+  orthographic camera.
+- The render loop should use the latest semantic frame. It must not starve the
+  emulator. Chapter 5's old GLUT idle/display split maps here to browser frame
+  callbacks plus the existing `frameCompleted` semantic event.
+
+Verification / exit criteria:
+- A debug panel can show current room id, colour, size, and frame counter.
+- Three.js canvas updates without reducing emulator responsiveness.
+- Original Spectrum rendering still works.
+
+Strict doubts:
+- Three.js is not currently part of the repo dependency set. Recommendation:
+  add it deliberately in the implementation stage, not during planning.
+- Static table access is not fully solved yet. Recommendation: make that the
+  first implementation decision before room decoding.
+
+Stage 1 - Rooms only: size, shape, colour
+-----------------------------------------
+
+Goal:
+Render only the current room volume/floor shape and colour. No walls, no doors,
+no objects, no player.
+
+Analysis track:
+- Read current room id from 0x5C10.
+- Read current colour/attribute from 0x5BAD.
+- Read current size bytes from 0x5BAB, 0x5BAC, 0x5BAE.
+- Cross-check those size bytes against the static room selector decoded from
+  the 0x6251 location entry.
+- Cross-check colour:
+  - Docs/static.txt says static room header low 3 bits are "attribute".
+  - Docs/info.txt and chapter 5 call 0x5BAD the colour.
+  - Recommendation: treat 0x5BAD as the runtime colour, but keep a comparison
+    field showing staticAttr = locationHeader & 0x07.
+
+Three.js track:
+- Render a simple floor plane or wireframe room footprint.
+- Render a vertical bounding box only as a debug aid.
+- Use a colour derived from 0x5BAD, but keep the palette mapping explicit and
+  easy to inspect.
+- Start with a fixed camera that resembles the original isometric view.
+
+Verification / exit criteria:
+- Moving between rooms changes the Three.js room id, colour, and size.
+- The three known room size selectors from Docs/static.txt produce distinct
+  room footprints.
+- The rendered room footprint agrees with the original room type at least for:
+  - a square room.
+  - an X-small/Y-normal room.
+  - an X-normal/Y-small room.
+
+Strict doubts:
+- The exact Three.js scale for 0x5BAB/0x5BAC/0x5BAE is not proven.
+  Recommendation: expose raw size bytes and use a temporary normalized scale
+  until verified against walls and player positions.
+
+Stage 2 - Walls, doors, arches, and fixed backgrounds
+-----------------------------------------------------
+
+Goal:
+Render the room's static enclosure and openings: walls, arches, tree walls, and
+portcullises/rejas.
+
+Analysis track:
+- Use the static location background list as the authoritative list of
+  backgrounds:
+  - wall presets: 0x0C, 0x0D, 0x0E.
+  - tree room preset: 0x0F.
+  - tree fillers: 0x10, 0x11.
+  - arches: 0x00..0x07.
+  - portcullises/rejas: 0x08..0x0B.
+- Resolve each background id through the 0x6CE2 background pointer table.
+- Compare static background expansion against the dynamic visual records at
+  0x5C88 + n * 0x20.
+- Recommendation: use static ids for semantic meaning and dynamic records for
+  exact high-resolution placement until one path is proven sufficient.
+
+Three.js track:
+- First pass: simple geometry only.
+  - walls as flat vertical planes or low boxes.
+  - arches/doors as coloured frames or openings.
+  - portcullises as simple barred planes.
+- Do not use original textures yet.
+- Use debug colours by background type so errors are easy to see.
+
+Verification / exit criteria:
+- For several rooms, the 3D view shows the same wall side/opening pattern as
+  the emulator view.
+- Arches are not guessed from neighbouring room ids; they come from background
+  ids.
+- Wall placement can be explained from decoded static/dynamic bytes.
+
+Strict doubts:
+- Chapter 5 says backgrounds are acquired from static data because they do not
+  move, but it also says the drawing function examines dynamic room data for
+  sprite ids. Recommendation: keep both sources visible and compare them before
+  deleting either path.
+
+Stage 3 - Main character
+------------------------
+
+Goal:
+Render the main character as a simple Three.js proxy with correct position,
+state, and orientation.
+
+Analysis track:
+- Body position:
+  - 0x5C09, 0x5C0A, 0x5C0B.
+- Head semantic candidate:
+  - 0x5C20, 0x5C2A, 0x5C2B.
+- Head render candidate:
+  - 0x5C29, 0x5C2A, 0x5C2B.
+- Sprite/state bytes:
+  - 0x5C41.
+  - 0x5C45.
+- Mirror/orientation bytes:
+  - 0x5C0F.
+  - 0x5C2F.
+- Chapter 5 uses body position for drawing, then 0x5C41 and 0x5C0F to determine
+  human/wolf state and orientation. It does not resolve the 0x5C20 vs 0x5C29
+  discrepancy.
+- Recommendation: render body from 0x5C09..0x5C0B and render head using the
+  0x5C29 candidate for visual tests, while retaining 0x5C20 as a semantic raw
+  field.
+
+Three.js track:
+- First pass: two simple primitives:
+  - body capsule/box.
+  - head sphere/box.
+- Second pass: rotate the proxy using orientation inferred from sprite id plus
+  mirror flag.
+- Do not model human/wolf detail until state/orientation are stable.
+
+Verification / exit criteria:
+- Body proxy tracks the original player in several rooms.
+- Head proxy stays attached to the body and agrees visually with the emulator.
+- Orientation changes match walking direction for north, south, east, and west.
+- Human/wolf state can be classified from the sprite bytes without reading
+  unavailable assumptions into the data.
+
+Strict doubts:
+- Exact mirror flag meanings are not fully documented in chapter 4/5 text.
+  Recommendation: keep raw 0x5C0F and 0x5C2F visible and build an empirical
+  orientation table from observed sprite/flag combinations.
+
+Stage 4 - Static and simple objects
+-----------------------------------
+
+Goal:
+Render non-player objects whose shape can be represented with simple Three.js
+primitives, without yet solving all animation or movement classes.
+
+Analysis track:
+- Decode object membership from the static room object descriptors.
+- Decode exact current positions from dynamic working-memory records.
+- Use object ids and sprite ids together:
+  - object ids define behaviour/semantic class.
+  - sprite ids often define visual appearance.
+- Group visually equivalent objects when appropriate, following chapter 5:
+  - fixed block.
+  - disappearing/collapsing block.
+  - moving block.
+  - movable block.
+  - all may be drawn as similar block geometry initially.
+
+Three.js track:
+- Start with primitives:
+  - blocks as boxes.
+  - rocks as rounded/simple low-poly shapes.
+  - chests/tables as simple boxes.
+  - spike blocks as boxes with spike markers.
+  - cauldron/wizard as placeholder shapes if encountered.
+- Use debug labels or colours per object type in development mode.
+
+Verification / exit criteria:
+- Static block clusters appear in the same place as the original room.
+- Objects that disappear or move in the original stop being treated as static
+  when their dynamic records change.
+- Primitive dimensions are derived from decoded size bytes, not hand-placed.
+
+Strict doubts:
+- Dynamic slot termination remains unconfirmed. Recommendation: parse 0x20-byte
+  slots conservatively and preserve the full raw slot for each candidate.
+
+Stage 5 - Moving, animated, and hazardous objects
+-------------------------------------------------
+
+Goal:
+Render objects whose position, sprite id, or state changes during gameplay:
+guards, balls, fire, moving blocks, portcullises, spells, and similar hazards.
+
+Analysis track:
+- Use game memory as the source of truth for motion. Do not invent Three.js
+  physics for gameplay entities.
+- Track per-frame changes in:
+  - dynamic visual record position bytes.
+  - sprite id byte.
+  - representation flags.
+  - surrounding 0x20-byte slot bytes.
+- Build object-specific observations only after repeated captures:
+  - fire animation.
+  - ball vertical movement.
+  - guard path movement.
+  - portcullis vertical movement.
+
+Three.js track:
+- First pass: update transforms directly from dynamic records each semantic
+  frame.
+- Second pass: map animated sprite ids to stable primitive/mesh states.
+- Third pass: add lightweight visual effects only after data behavior is clear.
+
+Verification / exit criteria:
+- Moving objects line up with the original emulator view over time.
+- Animation changes follow original game state rather than independent timers.
+- A pause or frame-step mode can inspect one moving object across several frames.
+
+Strict doubts:
+- Object identity across frames may be non-trivial if slot order changes.
+  Recommendation: begin by treating slots as frame-local, then add identity
+  tracking only when necessary.
+
+Stage 6 - Textures, sprite assets, and dewarping
+------------------------------------------------
+
+Goal:
+Decide how much of the original bitmap art to reuse and when.
+
+Analysis track:
+- Chapter 5 used original wall sprites as textures and corrected their
+  orthographic distortion with dewarping.
+- Chapter 5 drew most objects with OpenGL primitives rather than original sprite
+  textures.
+- The sprite table starts at 0x7112 and sprite data at 0x728A.
+
+Three.js track:
+- Recommendation: defer textures until stages 1..5 are geometrically correct.
+- When ready:
+  - extract sprite bitmap/mask pairs from static sprite data.
+  - generate texture atlases or individual textures.
+  - use Three.js UV mapping to mimic the old dewarping where useful.
+- Keep an option for modern primitive rendering because it may be clearer than
+  faithfully texturing every sprite.
+
+Verification / exit criteria:
+- Texture extraction can reproduce at least the block sprite 0x07.
+- A wall texture can be placed without corrupting the verified wall geometry.
+- Textures are optional overlays, not required for semantic correctness.
+
+Strict doubts:
+- Texture dewarping may consume time before the data pipeline is stable.
+  Recommendation: make it a later visual-polish milestone, not an early blocker.
+
+Stage 7 - Camera, controls, and layout
+--------------------------------------
+
+Goal:
+Make the new Three.js layout useful without losing the original emulator as a
+truth source.
+
+Analysis track:
+- Chapter 5 allowed perspective changes. For us, that is secondary to matching
+  the original view.
+- Decide display modes:
+  - emulator only.
+  - emulator plus Three.js side by side.
+  - emulator with semantic overlay.
+  - Three.js primary view after validation.
+
+Three.js track:
+- Begin with fixed orthographic isometric camera.
+- Add optional orbit/debug camera after geometry is correct.
+- Add axes/grid toggles only in debug mode.
+- Keep the UI quiet and work-focused; avoid a landing-page style layout.
+
+Verification / exit criteria:
+- The user can compare original and Three.js views for the same frame.
+- Resizing the browser does not desynchronize overlays or distort the 3D view.
+- Controls do not interfere with emulator keyboard input.
+
+Strict doubts:
+- Camera mapping is easy to make attractive but wrong. Recommendation: lock a
+  comparison camera first, then add free camera controls later.
+
+Stage 8 - Parser hardening and tests
+------------------------------------
+
+Goal:
+Turn the validated observations into robust parser and renderer contracts.
+
+Analysis track:
+- Create fixture rooms:
+  - simple square room.
+  - rectangular room size 1.
+  - rectangular room size 2.
+  - room with arches on multiple sides.
+  - tree room.
+  - room with static block cluster.
+  - room with moving fire/ball/guard.
+  - room used for player orientation tests.
+- For each fixture, record:
+  - current room id.
+  - room colour.
+  - room size bytes.
+  - static background ids.
+  - decoded dynamic slots.
+  - expected number of rendered semantic entities.
+
+Three.js track:
+- Add visual regression checks once the renderer exists:
+  - nonblank canvas.
+  - room footprint present.
+  - expected object count visible.
+  - player proxy visible and within room bounds.
+- Keep original framebuffer screenshots as comparison evidence, not as the data
+  source for the renderer.
+
+Verification / exit criteria:
+- Parser tests pass on captured semantic frames.
+- Three.js smoke tests pass on desktop and mobile viewport sizes.
+- Renderer can be disabled without affecting emulator behavior.
+
+Stage 9 - Switch-over strategy
+------------------------------
+
+Goal:
+Decide when the Three.js renderer is reliable enough to become the main view.
+
+Required before switch-over:
+- Room size/colour decoded and verified.
+- Walls/arches decoded and verified.
+- Player body/head/orientation decoded and verified.
+- Static object placement decoded and verified.
+- Moving object placement decoded and verified for common hazards.
+- The original Spectrum view remains available as a debug/comparison mode.
+
+Recommendation:
+- Do not bypass Spectrum rendering early.
+- Make Three.js a parallel semantic renderer first.
+- Promote it only after the user can enter multiple rooms and the new view
+  follows room changes, player movement, and common object motion correctly.
+
+Main open decisions
+-------------------
+
+1. Static table acquisition.
+Options:
+- capture all static table ranges once from emulator RAM.
+- extend the worker API to read arbitrary static ranges on demand.
+- precompute from the snapshot file in the test harness only.
+Recommendation: capture/cache static ranges once from emulator RAM after the
+game is loaded. This keeps the implementation general and avoids per-frame cost.
+
+2. Room colour naming.
+Options:
+- treat 0x5BAD as authoritative colour immediately.
+- treat it as attribute until compared to static room header.
+Recommendation: use 0x5BAD for rendering, but keep raw/static comparison fields
+until several rooms confirm the mapping.
+
+3. Dynamic room slot stride.
+Options:
+- parse every 8 bytes.
+- parse 0x20-byte slots and read the first/known visual 8-byte group.
+Recommendation: parse 0x20-byte slots first, because chapter 4 figures show
+that pattern and the existing 8-byte parser risks mixing internal state with
+visual records.
+
+4. Player head X.
+Options:
+- use 0x5C20 exactly as prose says.
+- use 0x5C29 for rendering, as previous overlay tests and figure 4.28 suggest.
+- keep both.
+Recommendation: keep both. Use 0x5C29 only for rendering/overlay and keep
+0x5C20 as the semantic prose field until resolved.
+
+5. Textures versus primitives.
+Options:
+- immediately extract original sprites and textures.
+- render clean primitives first.
+Recommendation: primitives first. Texture extraction and dewarping should wait
+until geometry and semantic identity are stable.
+
+Near-term implementation order
+------------------------------
+1. Update documentation references from Plan to Docs where needed.
+2. Fix the dynamic parser assumption from 8-byte consecutive records to
+   conservative 0x20-byte candidate slots.
+3. Add static-table acquisition/caching.
+4. Build the room-only parser and debug display:
+   - id.
+   - colour.
+   - size.
+   - static size selector.
+5. Build the first Three.js scene:
+   - fixed camera.
+   - room floor/volume only.
+6. Add walls/arches from static background ids plus dynamic placement checks.
+7. Add the main character proxy.
+8. Add simple static objects.
+9. Add moving/animated objects.
+10. Add textures/dewarping only after the above layers are stable.
+
+Honest summary
+--------------
+The strongest path is not to recreate Knight Lore 2006 literally. Chapter 5 is
+valuable because it gives the acquisition/rendering order and confirms which
+memory fields were used. The modern project should keep the original game
+running, extract semantic state after each emulator frame, and build the Three.js
+view in verified layers: room, walls/arches, character, objects, animation, then
+texture polish.
