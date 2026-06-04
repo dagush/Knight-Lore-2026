@@ -138,3 +138,104 @@ Current interpretation:
 - Restored `runtime/knightlore.js`.
 - Restored the semantic hooks in `runtime/worker.js` and `runtime/jsspeccy.js`.
 - The original PDF `Plan/Memoria_RicardGalvany.pdf` was not recoverable from the current workspace because it was not tracked and no local copy was found.
+
+## 2026-06-03 - Stage 0 Acquisition and Three.js Foundation
+
+Documentation/file naming:
+
+- The planning folder is now `Docs/`.
+- The dated plan files have been renamed to the form `Plan YYYY MM DD.txt`.
+- The latest active plan is `Docs/Plan 2026 06 03.txt`.
+
+Dependency decision:
+
+- Added Three.js as a repository dependency.
+- Used `three@0.149.0` rather than the latest release.
+- Reason: the latest Three.js package contains class static blocks that the current `webpack@5.44.0` parser path cannot handle without a tooling upgrade.
+- Recommendation kept for later: upgrade webpack/build tooling as a separate maintenance step, not inside Stage 0.
+
+Semantic acquisition:
+
+- Confirmed that the worker still captures the semantic frame from `0x5BA0..0x6107` every completed emulator frame.
+- The capture still happens after `core.runFrame()` / `core.resumeFrame()` completes and before `frameCompleted` is posted to the main thread.
+- Added a one-time static memory cache after snapshot load:
+  - cached range: `0x6248..0xAF6B`;
+  - exclusive end in code: `0xAF6C`;
+  - size: 19,748 bytes.
+- This cache is attached to the snapshot `fileOpened` message and retained on the main thread.
+- Static tables are not copied into every semantic frame.
+- The static cache is invalidated on reset or generic memory page load.
+
+Static cache subranges recorded:
+
+- `0x6248..0x6250`: room size table.
+- `0x6251..0x6BD0`: locations table.
+- `0x6BD1..0x6C0A`: block type offset table.
+- `0x6C0B..0x6CE1`: block type data.
+- `0x6CE2..0x6D11`: background type offset table.
+- `0x6D12..0x6F2E`: background type data.
+- `0x6FF2..0x7111`: collectable/static objects table.
+- `0x7112..0x7289`: sprite offset table.
+- `0x728A..0xAF6B`: sprite data.
+
+Room-level dynamic anchors:
+
+- Added explicit room fields to the parser:
+  - room id: `0x5C10`;
+  - room colour/attribute: `0x5BAD`;
+  - room size X: `0x5BAB`;
+  - room size Y: `0x5BAC`;
+  - room size Z: `0x5BAE`.
+- These values now appear in `semanticFrame.knightLoreScene.room`.
+- They are also included in the selected raw byte debug table.
+
+Three.js Stage 0 renderer:
+
+- Added `runtime/semantic3d.js`.
+- Added an optional `knightLoreStage0Container` option to `window.JSSpeccy()`.
+- The Stage 0 renderer currently draws:
+  - solid background;
+  - grid helper;
+  - axis helper;
+  - simple transparent/wireframe room box;
+  - DOM debug summary.
+- The renderer is fed by the existing `semanticFrame` event.
+- It renders when semantic frames arrive or when the view is resized; it does not run a separate continuous animation loop.
+- This preserves the original emulator timing model and avoids starving the emulator.
+
+Test harness:
+
+- Updated ignored `_tests/index.html` to show the Stage 0 Three.js pane next to the Spectrum view.
+- Kept the player debug information visible.
+- Kept `Raw Work Memory Dump` and `Candidate Dynamic Records` hidden for later stages.
+- Updated the local cache key to `knightlore-stage0-20260603a`.
+
+Verification performed:
+
+- Ran syntax checks on:
+  - `runtime/worker.js`;
+  - `runtime/jsspeccy.js`;
+  - `runtime/knightlore.js`;
+  - `runtime/semantic3d.js`.
+- Confirmed `package-lock.json` parses.
+- Confirmed local Three.js import resolves to revision `149`.
+- Rebuilt the local JavaScript bundles.
+- The normal `webpack` CLI path exposed existing environment/tooling issues:
+  - the CLI attempted to load the ESM config as CommonJS;
+  - current Node/OpenSSL also requires `NODE_OPTIONS=--openssl-legacy-provider` for this old webpack version.
+- Using the Node ESM loader plus the OpenSSL compatibility option, the build passed.
+- Browser verification was done through the `_tests` HTTP page with headless Google Chrome.
+- After pressing the existing Unpause control:
+  - Stage 0 summary updated to live semantic frames;
+  - static cache displayed as `19748 bytes`;
+  - room id, colour/attribute, and size fields appeared in the debug UI;
+  - the Stage 0 canvas was nonblank;
+  - the original Spectrum canvas still rendered correctly;
+  - no page errors were reported in the final browser run.
+
+Strict caveats:
+
+- The first observed room frame showed room id `0x01`, colour/attribute `0x00`, and size bytes `(0, 0, 0)`.
+- Treat those size bytes as observed runtime data only, not yet as validated room dimensions.
+- Stage 1 should cross-check the working-memory size/colour values against the static location entry before using them as authoritative room geometry.
+- The main bundle is now larger because Three.js is statically imported. This is acceptable for Stage 0, but a later cleanup can lazy-load the renderer if needed.
