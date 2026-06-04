@@ -11,9 +11,23 @@ let tapePulses = null;
 let stopped = false;
 let tape = null;
 let tapeIsPlaying = false;
+let knightLoreStaticMemory = null;
 
 const SEMANTIC_MEMORY_START = 0x5ba0;
 const SEMANTIC_MEMORY_END = 0x6108;
+const KNIGHT_LORE_STATIC_MEMORY_START = 0x6248;
+const KNIGHT_LORE_STATIC_MEMORY_END = 0xaf6c;
+const KNIGHT_LORE_STATIC_RANGES = {
+    roomSizes: {start: 0x6248, end: 0x6251},
+    locations: {start: 0x6251, end: 0x6bd1},
+    blockTypeOffsets: {start: 0x6bd1, end: 0x6c0b},
+    blockTypeData: {start: 0x6c0b, end: 0x6ce2},
+    backgroundTypeOffsets: {start: 0x6ce2, end: 0x6d12},
+    backgroundTypeData: {start: 0x6d12, end: 0x6f2f},
+    staticObjects: {start: 0x6ff2, end: 0x7112},
+    spriteOffsets: {start: 0x7112, end: 0x728a},
+    spriteData: {start: 0x728a, end: 0xaf6c},
+};
 
 const loadCore = (baseUrl) => {
     WebAssembly.instantiateStreaming(
@@ -34,6 +48,7 @@ const loadCore = (baseUrl) => {
 
 const loadMemoryPage = (page, data) => {
     memoryData.set(data, core.MACHINE_MEMORY + page * 0x4000);
+    knightLoreStaticMemory = null;
 };
 
 const loadSnapshot = (snapshot) => {
@@ -58,18 +73,30 @@ const loadSnapshot = (snapshot) => {
     }
 
     core.setTStates(snapshot.tstates);
+    knightLoreStaticMemory = captureKnightLoreStaticMemory();
 };
 
-const captureSemanticFrame = () => {
-    const semanticMemory = new Uint8Array(SEMANTIC_MEMORY_END - SEMANTIC_MEMORY_START);
-    for (let addr = SEMANTIC_MEMORY_START; addr < SEMANTIC_MEMORY_END; addr++) {
-        semanticMemory[addr - SEMANTIC_MEMORY_START] = core.peek(addr);
+const captureMemoryRange = (start, end) => {
+    const range = new Uint8Array(end - start);
+    for (let addr = start; addr < end; addr++) {
+        range[addr - start] = core.peek(addr);
     }
+    return range;
+};
 
+const captureKnightLoreStaticMemory = () => ({
+    memoryStart: KNIGHT_LORE_STATIC_MEMORY_START,
+    memoryEnd: KNIGHT_LORE_STATIC_MEMORY_END,
+    byteLength: KNIGHT_LORE_STATIC_MEMORY_END - KNIGHT_LORE_STATIC_MEMORY_START,
+    staticMemory: captureMemoryRange(KNIGHT_LORE_STATIC_MEMORY_START, KNIGHT_LORE_STATIC_MEMORY_END),
+    ranges: KNIGHT_LORE_STATIC_RANGES,
+});
+
+const captureSemanticFrame = () => {
     return {
         memoryStart: SEMANTIC_MEMORY_START,
         memoryEnd: SEMANTIC_MEMORY_END,
-        semanticMemory,
+        semanticMemory: captureMemoryRange(SEMANTIC_MEMORY_START, SEMANTIC_MEMORY_END),
         registers: Array.from(registerPairs),
         pc: core.getPC(),
         tstates: core.getTStates(),
@@ -226,6 +253,7 @@ onmessage = (e) => {
             break;
         case 'reset':
             core.reset();
+            knightLoreStaticMemory = null;
             break;
         case 'loadMemory':
             loadMemoryPage(e.data.page, e.data.data);
@@ -236,6 +264,7 @@ onmessage = (e) => {
                 message: 'fileOpened',
                 id: e.data.id,
                 mediaType: 'snapshot',
+                knightLoreStaticMemory,
             });
             break;
         case 'openTAPFile':

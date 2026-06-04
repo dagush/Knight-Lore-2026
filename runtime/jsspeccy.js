@@ -9,6 +9,7 @@ import { TAPFile, TZXFile } from './tape.js';
 import { StandardKeyboardHandler, RecreatedZXSpectrumHandler } from './keyboard.js';
 import { AudioHandler } from './audio.js';
 import { extractKnightLoreScene } from './knightlore.js';
+import { KnightLoreStage0Renderer } from './semantic3d.js';
 
 import openIcon from './icons/open.svg';
 import resetIcon from './icons/reset.svg';
@@ -41,6 +42,7 @@ class Emulator extends EventEmitter {
         this.tapeAutoLoadMode = opts.tapeAutoLoadMode || 'default';  // or usr0
         this.tapeIsPlaying = false;
         this.tapeTrapsEnabled = ('tapeTrapsEnabled' in opts) ? opts.tapeTrapsEnabled : true;
+        this.knightLoreStaticMemory = null;
 
         this.msPerFrame = 20;
 
@@ -83,6 +85,9 @@ class Emulator extends EventEmitter {
                         this.audioHandler.frameCompleted(e.data.audioBufferLeft, e.data.audioBufferRight);
                     }
                     if ('semanticFrame' in e.data) {
+                        if (this.knightLoreStaticMemory) {
+                            e.data.semanticFrame.knightLoreStaticMemory = this.knightLoreStaticMemory;
+                        }
                         e.data.semanticFrame.knightLoreScene = extractKnightLoreScene(e.data.semanticFrame);
                         if (this.onSemanticFrame) {
                             this.onSemanticFrame(e.data.semanticFrame);
@@ -106,6 +111,10 @@ class Emulator extends EventEmitter {
                     }
                     break;
                 case 'fileOpened':
+                    if (e.data.knightLoreStaticMemory) {
+                        this.knightLoreStaticMemory = e.data.knightLoreStaticMemory;
+                        this.emit('knightLoreStaticMemory', this.knightLoreStaticMemory);
+                    }
                     if (e.data.mediaType == 'tape' && this.autoLoadTapes) {
                         const TAPE_LOADERS_BY_MACHINE = {
                             '48': {'default': 'tapeloaders/tape_48.szx', 'usr0': 'tapeloaders/tape_48.szx'},
@@ -119,6 +128,7 @@ class Emulator extends EventEmitter {
                     }
                     this.fileOpenPromiseResolutions[e.data.id]({
                         mediaType: e.data.mediaType,
+                        knightLoreStaticMemory: e.data.knightLoreStaticMemory || null,
                     });
                     if (e.data.mediaType == 'tape') {
                         this.emit('openedTapeFile');
@@ -249,6 +259,7 @@ class Emulator extends EventEmitter {
     }
 
     reset() {
+        this.knightLoreStaticMemory = null;
         this.worker.postMessage({message: 'reset'});
     }
 
@@ -443,6 +454,21 @@ window.JSSpeccy = (container, opts) => {
             ui.appContainer.tabIndex = 0;  // allow receiving focus for keyboard events
         }
         emu.setKeyboardEventRoot(ui.appContainer);
+    }
+
+    const knightLoreStage0Renderer = opts.knightLoreStage0Container
+        ? new KnightLoreStage0Renderer(opts.knightLoreStage0Container)
+        : null;
+    if (knightLoreStage0Renderer) {
+        emu.on('semanticFrame', frame => {
+            knightLoreStage0Renderer.update(frame);
+        });
+        emu.on('knightLoreStaticMemory', staticMemory => {
+            knightLoreStage0Renderer.updateStaticMemory(staticMemory);
+        });
+        if (emu.knightLoreStaticMemory) {
+            knightLoreStage0Renderer.updateStaticMemory(emu.knightLoreStaticMemory);
+        }
     }
 
     if (uiEnabled) {
@@ -701,6 +727,9 @@ window.JSSpeccy = (container, opts) => {
     }
 
     const exit = () => {
+        if (knightLoreStage0Renderer) {
+            knightLoreStage0Renderer.dispose();
+        }
         emu.exit();
         ui.unload();
     }
@@ -739,6 +768,9 @@ window.JSSpeccy = (container, opts) => {
         },
         onSemanticFrame: (callback) => {
             emu.on('semanticFrame', callback);
+        },
+        onKnightLoreStaticMemory: (callback) => {
+            emu.on('knightLoreStaticMemory', callback);
         },
         exit: () => {exit();},
     };

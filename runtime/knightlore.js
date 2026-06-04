@@ -1,7 +1,16 @@
 export const KNIGHT_LORE_MEMORY = {
     scratchStart: 0x5ba0,
     scratchEnd: 0x6108,
+    staticStart: 0x6248,
+    staticEnd: 0xaf6c,
     dynamicRoomStart: 0x5c88,
+    room: {
+        sizeX: 0x5bab,
+        sizeY: 0x5bac,
+        colourAttribute: 0x5bad,
+        sizeZ: 0x5bae,
+        id: 0x5c10,
+    },
     player: {
         bodyX: 0x5c09,
         bodyY: 0x5c0a,
@@ -27,6 +36,11 @@ const DEBUG_BYTE_DEFINITIONS = [
     ['player.body.y', KNIGHT_LORE_MEMORY.player.bodyY],
     ['player.body.z', KNIGHT_LORE_MEMORY.player.bodyZ],
     ['player.body.mirrorFlag', KNIGHT_LORE_MEMORY.player.bodyMirrorFlag],
+    ['room.size.x', KNIGHT_LORE_MEMORY.room.sizeX],
+    ['room.size.y', KNIGHT_LORE_MEMORY.room.sizeY],
+    ['room.colourAttribute', KNIGHT_LORE_MEMORY.room.colourAttribute],
+    ['room.size.z', KNIGHT_LORE_MEMORY.room.sizeZ],
+    ['room.id', KNIGHT_LORE_MEMORY.room.id],
     ['player.head.x', KNIGHT_LORE_MEMORY.player.headX],
     ['player.head.y', KNIGHT_LORE_MEMORY.player.headY],
     ['player.head.z', KNIGHT_LORE_MEMORY.player.headZ],
@@ -172,8 +186,38 @@ function parseSelectedBytes(memory, memoryStart) {
         .sort((a, b) => a.address - b.address);
 }
 
+function parseRoom(memory, memoryStart) {
+    const colourAttribute = readKnightLoreByte(memory, memoryStart, KNIGHT_LORE_MEMORY.room.colourAttribute);
+
+    return {
+        id: readKnightLoreByte(memory, memoryStart, KNIGHT_LORE_MEMORY.room.id),
+        colourAttribute,
+        color: colourAttribute,
+        size: {
+            x: readKnightLoreByte(memory, memoryStart, KNIGHT_LORE_MEMORY.room.sizeX),
+            y: readKnightLoreByte(memory, memoryStart, KNIGHT_LORE_MEMORY.room.sizeY),
+            z: readKnightLoreByte(memory, memoryStart, KNIGHT_LORE_MEMORY.room.sizeZ),
+        },
+    };
+}
+
+function parseStaticCacheSummary(frame) {
+    if (!frame || !frame.knightLoreStaticMemory) return null;
+    const cache = frame.knightLoreStaticMemory;
+
+    return {
+        memoryStart: cache.memoryStart,
+        memoryEnd: cache.memoryEnd,
+        byteLength: cache.byteLength || (
+            cache.staticMemory ? cache.staticMemory.length : null
+        ),
+        ranges: cache.ranges || null,
+    };
+}
+
 export function extractKnightLoreScene(source, opts = {}) {
     const {memory, memoryStart, frame} = getMemoryAndStart(source, opts);
+    const room = parseRoom(memory, memoryStart);
     const body = readPosition(memory, memoryStart, {
         x: KNIGHT_LORE_MEMORY.player.bodyX,
         y: KNIGHT_LORE_MEMORY.player.bodyY,
@@ -216,6 +260,8 @@ export function extractKnightLoreScene(source, opts = {}) {
             orientation: parseOrientation(memory, memoryStart),
         },
         room: {
+            ...room,
+            staticCache: parseStaticCacheSummary(frame),
             dynamicStart: KNIGHT_LORE_MEMORY.dynamicRoomStart,
             dynamicHeader: readBytes(memory, memoryStart, KNIGHT_LORE_MEMORY.dynamicRoomStart, 8),
             sprites: dynamicSprites,

@@ -198,19 +198,23 @@ class ToolbarButton {
     }
     setIcon(icon) {
         this.elem.innerHTML = icon;
-        this.elem.firstChild.style.height = '20px';
-        this.elem.firstChild.style.verticalAlign = 'middle';
+        const iconElement = this.elem.querySelector('svg');
+        if (!iconElement) return;
+        iconElement.style.height = '20px';
+        iconElement.style.verticalAlign = 'middle';
     }
     setLabel(label) {
         this.elem.title = label;
     }
     disable() {
         this.elem.disabled = true;
-        this.elem.firstChild.style.opacity = '0.5';
+        const iconElement = this.elem.querySelector('svg');
+        if (iconElement) iconElement.style.opacity = '0.5';
     }
     enable() {
         this.elem.disabled = false;
-        this.elem.firstChild.style.opacity = '1';
+        const iconElement = this.elem.querySelector('svg');
+        if (iconElement) iconElement.style.opacity = '1';
     }
 }
 

@@ -10,7 +10,7 @@ export default [
             rules: [
                 {
                     test: /\.svg$/,
-                    loader: 'svg-inline-loader',
+                    type: 'asset/source',
                 }
             ],
         }
