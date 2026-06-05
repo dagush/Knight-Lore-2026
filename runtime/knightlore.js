@@ -4,6 +4,8 @@ export const KNIGHT_LORE_MEMORY = {
     staticStart: 0x6248,
     staticEnd: 0xaf6c,
     dynamicRoomStart: 0x5c88,
+    dynamicVisualSlotSize: 0x20,
+    dynamicVisualRecordSize: 8,
     room: {
         sizeX: 0x5bab,
         sizeY: 0x5bac,
@@ -26,8 +28,47 @@ export const KNIGHT_LORE_MEMORY = {
     },
 };
 
-const DEFAULT_MAX_DYNAMIC_SPRITES = 96;
-const DYNAMIC_SPRITE_RECORD_SIZE = 8;
+const STATIC_TABLES = {
+    roomSizesStart: 0x6248,
+    roomSizeEntrySize: 3,
+    locationsStart: 0x6251,
+    locationsEnd: 0x6bd1,
+    backgroundPointerStart: 0x6ce2,
+    backgroundPointerEnd: 0x6d12,
+    backgroundDataStart: 0x6d12,
+    backgroundDataEnd: 0x6f2f,
+};
+
+const BACKGROUND_TYPES = {
+    0x00: {label: 'arch north', category: 'arch', side: 'north'},
+    0x01: {label: 'arch east', category: 'arch', side: 'east'},
+    0x02: {label: 'arch south', category: 'arch', side: 'south'},
+    0x03: {label: 'arch west', category: 'arch', side: 'west'},
+    0x04: {label: 'tree arch north', category: 'tree-arch', side: 'north'},
+    0x05: {label: 'tree arch east', category: 'tree-arch', side: 'east'},
+    0x06: {label: 'tree arch south', category: 'tree-arch', side: 'south'},
+    0x07: {label: 'tree arch west', category: 'tree-arch', side: 'west'},
+    0x08: {label: 'portcullis north', category: 'portcullis', side: 'north'},
+    0x09: {label: 'portcullis east', category: 'portcullis', side: 'east'},
+    0x0a: {label: 'portcullis south', category: 'portcullis', side: 'south'},
+    0x0b: {label: 'portcullis west', category: 'portcullis', side: 'west'},
+    0x0c: {label: 'wall room size 1', category: 'wall-preset'},
+    0x0d: {label: 'wall room size 2', category: 'wall-preset'},
+    0x0e: {label: 'wall room size 3', category: 'wall-preset'},
+    0x0f: {label: 'tree room size 1', category: 'tree-room'},
+    0x10: {label: 'tree filler west', category: 'tree-filler', side: 'west'},
+    0x11: {label: 'tree filler north', category: 'tree-filler', side: 'north'},
+    0x12: {label: 'wizard', category: 'fixed-background'},
+    0x13: {label: 'cauldron', category: 'fixed-background'},
+    0x14: {label: 'high arch east', category: 'high-arch', side: 'east'},
+    0x15: {label: 'high arch south', category: 'high-arch', side: 'south'},
+    0x16: {label: 'high arch east base', category: 'high-arch-base', side: 'east'},
+    0x17: {label: 'high arch south base', category: 'high-arch-base', side: 'south'},
+};
+
+const DEFAULT_MAX_DYNAMIC_VISUAL_SLOTS = (
+    KNIGHT_LORE_MEMORY.scratchEnd - KNIGHT_LORE_MEMORY.dynamicRoomStart
+) / KNIGHT_LORE_MEMORY.dynamicVisualSlotSize;
 const HIGH_RES_ORIGIN = 72;
 const HIGH_RES_SCREEN_Z = 128;
 
@@ -113,6 +154,40 @@ function flagBits(value) {
     return bits;
 }
 
+function getStaticMemory(frame) {
+    if (!frame || !frame.knightLoreStaticMemory) return null;
+
+    const cache = frame.knightLoreStaticMemory;
+    const memory = cache.staticMemory || cache.memory || null;
+    if (!memory) return null;
+
+    return {
+        cache,
+        memory,
+        memoryStart: cache.memoryStart || KNIGHT_LORE_MEMORY.staticStart,
+        memoryEnd: cache.memoryEnd || (
+            (cache.memoryStart || KNIGHT_LORE_MEMORY.staticStart) + memory.length
+        ),
+    };
+}
+
+function readStaticByte(staticMemory, address) {
+    if (!staticMemory) return null;
+    return readKnightLoreByte(staticMemory.memory, staticMemory.memoryStart, address);
+}
+
+function readStaticBytes(staticMemory, startAddress, length) {
+    if (!staticMemory) return [];
+    return readBytes(staticMemory.memory, staticMemory.memoryStart, startAddress, length);
+}
+
+function readStaticWord(staticMemory, address) {
+    const lo = readStaticByte(staticMemory, address);
+    const hi = readStaticByte(staticMemory, address + 1);
+    if (lo === null || hi === null) return null;
+    return lo | (hi << 8);
+}
+
 function parseOrientation(memory, memoryStart) {
     const bodyMirrorFlag = readKnightLoreByte(memory, memoryStart, KNIGHT_LORE_MEMORY.player.bodyMirrorFlag);
     const headMirrorFlag = readKnightLoreByte(memory, memoryStart, KNIGHT_LORE_MEMORY.player.headMirrorFlag);
@@ -131,10 +206,22 @@ function parseOrientation(memory, memoryStart) {
     };
 }
 
-function parseDynamicSpriteRecord(memory, memoryStart, address) {
-    const bytes = readBytes(memory, memoryStart, address, DYNAMIC_SPRITE_RECORD_SIZE);
+function parseDimensionTriplet(bytes) {
+    return {
+        x: bytes[4],
+        y: bytes[5],
+        z: bytes[6],
+        width: bytes[4],
+        depth: bytes[5],
+        height: bytes[6],
+    };
+}
+
+function parseDynamicVisualRecord(memory, memoryStart, address, slotIndex) {
+    const bytes = readBytes(memory, memoryStart, address, KNIGHT_LORE_MEMORY.dynamicVisualRecordSize);
     if (bytes.some(byte => byte === null)) return null;
     if (bytes.every(byte => byte === 0)) return null;
+    if (bytes[0] === 0) return null;
 
     const flags = bytes[7];
     const position = {
@@ -145,15 +232,14 @@ function parseDynamicSpriteRecord(memory, memoryStart, address) {
 
     return {
         address,
+        slotIndex,
+        slotSize: KNIGHT_LORE_MEMORY.dynamicVisualSlotSize,
         raw: bytes,
+        slotRaw: readBytes(memory, memoryStart, address, KNIGHT_LORE_MEMORY.dynamicVisualSlotSize),
         spriteId: bytes[0],
         position,
-        screenPosition: toHighResolutionPosition(position),
-        dimensions: {
-            width: bytes[4],
-            height: bytes[5],
-            depth: bytes[6],
-        },
+        screenPosition: position,
+        dimensions: parseDimensionTriplet(bytes),
         flags: {
             raw: flags,
             bits: flagBits(flags),
@@ -161,19 +247,23 @@ function parseDynamicSpriteRecord(memory, memoryStart, address) {
     };
 }
 
-function parseDynamicSprites(memory, memoryStart, opts) {
+function parseDynamicVisualRecords(memory, memoryStart, opts) {
     const startAddress = opts.dynamicRoomStart || KNIGHT_LORE_MEMORY.dynamicRoomStart;
-    const maxSprites = opts.maxDynamicSprites || DEFAULT_MAX_DYNAMIC_SPRITES;
-    const sprites = [];
+    const memoryEnd = memoryStart + (memory ? memory.length : 0);
+    const availableSlots = Math.floor(Math.max(0, memoryEnd - startAddress) / KNIGHT_LORE_MEMORY.dynamicVisualSlotSize);
+    const maxSlots = Math.min(
+        opts.maxDynamicVisualSlots || opts.maxDynamicSprites || DEFAULT_MAX_DYNAMIC_VISUAL_SLOTS,
+        availableSlots
+    );
+    const records = [];
 
-    for (let i = 0; i < maxSprites; i++) {
-        const address = startAddress + i * DYNAMIC_SPRITE_RECORD_SIZE;
-        const record = parseDynamicSpriteRecord(memory, memoryStart, address);
-        if (!record) break;
-        sprites.push(record);
+    for (let i = 0; i < maxSlots; i++) {
+        const address = startAddress + i * KNIGHT_LORE_MEMORY.dynamicVisualSlotSize;
+        const record = parseDynamicVisualRecord(memory, memoryStart, address, i);
+        if (record) records.push(record);
     }
 
-    return sprites;
+    return records;
 }
 
 function parseSelectedBytes(memory, memoryStart) {
@@ -201,6 +291,339 @@ function parseRoom(memory, memoryStart) {
     };
 }
 
+function parseStaticRoomSize(staticMemory, selector) {
+    if (!Number.isInteger(selector) || selector < 0) return null;
+    const address = STATIC_TABLES.roomSizesStart + selector * STATIC_TABLES.roomSizeEntrySize;
+    const bytes = readStaticBytes(staticMemory, address, STATIC_TABLES.roomSizeEntrySize);
+    if (bytes.length !== STATIC_TABLES.roomSizeEntrySize || bytes.some(byte => byte === null)) {
+        return null;
+    }
+
+    return {
+        selector,
+        address,
+        x: bytes[0],
+        y: bytes[1],
+        z: bytes[2],
+        raw: bytes,
+    };
+}
+
+function classifyBackgroundType(id) {
+    return BACKGROUND_TYPES[id] || {
+        label: 'background ' + id,
+        category: 'unknown-background',
+    };
+}
+
+function parseStaticBackgroundRecord(staticMemory, address, index) {
+    const bytes = readStaticBytes(staticMemory, address, KNIGHT_LORE_MEMORY.dynamicVisualRecordSize);
+    if (bytes.some(byte => byte === null)) return null;
+    if (bytes[0] === 0) return null;
+
+    const flags = bytes[7];
+    return {
+        index,
+        address,
+        raw: bytes,
+        spriteId: bytes[0],
+        position: {
+            x: bytes[1],
+            y: bytes[2],
+            z: bytes[3],
+        },
+        screenPosition: {
+            x: bytes[1],
+            y: bytes[2],
+            z: bytes[3],
+        },
+        dimensions: parseDimensionTriplet(bytes),
+        flags: {
+            raw: flags,
+            bits: flagBits(flags),
+            flipVertical: Boolean(flags & 0x80),
+            flipHorizontal: Boolean(flags & 0x40),
+            drawInternal: Boolean(flags & 0x10),
+        },
+    };
+}
+
+function parseStaticBackgroundType(staticMemory, id) {
+    const definition = classifyBackgroundType(id);
+    const pointerAddress = STATIC_TABLES.backgroundPointerStart + id * 2;
+    const result = {
+        id,
+        pointerAddress,
+        dataAddress: null,
+        records: [],
+        ...definition,
+    };
+
+    if (
+        pointerAddress < STATIC_TABLES.backgroundPointerStart
+        || pointerAddress + 1 >= STATIC_TABLES.backgroundPointerEnd
+    ) {
+        return {
+            ...result,
+            warning: 'background pointer is outside the documented table',
+        };
+    }
+
+    const dataAddress = readStaticWord(staticMemory, pointerAddress);
+    result.dataAddress = dataAddress;
+    if (
+        dataAddress === null
+        || dataAddress < STATIC_TABLES.backgroundDataStart
+        || dataAddress >= STATIC_TABLES.backgroundDataEnd
+    ) {
+        return {
+            ...result,
+            warning: 'background data pointer is outside the documented data range',
+        };
+    }
+
+    let address = dataAddress;
+    let index = 0;
+    while (address < STATIC_TABLES.backgroundDataEnd && index < 64) {
+        const record = parseStaticBackgroundRecord(staticMemory, address, index);
+        if (!record) break;
+        result.records.push(record);
+        address += KNIGHT_LORE_MEMORY.dynamicVisualRecordSize;
+        index += 1;
+    }
+
+    return result;
+}
+
+function parseStaticLocation(frame, room) {
+    const staticMemory = getStaticMemory(frame);
+    if (!staticMemory || room.id === null || room.id === undefined) return null;
+
+    let address = STATIC_TABLES.locationsStart;
+    let locationIndex = 0;
+
+    while (address < STATIC_TABLES.locationsEnd && locationIndex < 256) {
+        const screenId = readStaticByte(staticMemory, address);
+        const sizeByte = readStaticByte(staticMemory, address + 1);
+        if (screenId === null || sizeByte === null || sizeByte === 0) break;
+
+        const entryEnd = address + 1 + sizeByte;
+        if (entryEnd > STATIC_TABLES.locationsEnd) {
+            return {
+                error: 'location entry extends past the documented location table',
+                address,
+                entryEnd,
+            };
+        }
+
+        if (screenId === room.id) {
+            const header = readStaticByte(staticMemory, address + 2);
+            const sizeSelector = header === null ? null : header >> 3;
+            const attr = header === null ? null : header & 0x07;
+            const dimensions = parseStaticRoomSize(staticMemory, sizeSelector);
+            const backgroundIds = [];
+            let cursor = address + 3;
+            let foundTerminator = false;
+
+            while (cursor < entryEnd) {
+                const value = readStaticByte(staticMemory, cursor);
+                if (value === null) break;
+                cursor += 1;
+                if (value === 0xff) {
+                    foundTerminator = true;
+                    break;
+                }
+                backgroundIds.push(value);
+            }
+
+            const backgrounds = backgroundIds.map(id => parseStaticBackgroundType(staticMemory, id));
+            const sizeMatchesWorkMemory = dimensions
+                ? (
+                    dimensions.x === room.size.x
+                    && dimensions.y === room.size.y
+                    && dimensions.z === room.size.z
+                )
+                : false;
+            const attrMatchesWorkMemory = (
+                attr !== null
+                && room.colourAttribute !== null
+                && (room.colourAttribute & 0x07) === attr
+            );
+
+            return {
+                address,
+                entryEnd,
+                locationIndex,
+                screenId,
+                sizeByte,
+                header,
+                sizeSelector,
+                attr,
+                dimensions,
+                backgroundIds,
+                backgrounds,
+                backgroundListTerminated: foundTerminator,
+                blockDataStart: cursor,
+                blockDataEnd: entryEnd,
+                comparisons: {
+                    sizeMatchesWorkMemory,
+                    attrMatchesWorkMemory,
+                },
+            };
+        }
+
+        address = entryEnd;
+        locationIndex += 1;
+    }
+
+    return {
+        error: 'room id was not found in the static location table',
+        roomId: room.id,
+    };
+}
+
+function flattenStaticBackgroundRecords(staticLocation) {
+    if (!staticLocation || !staticLocation.backgrounds) return [];
+
+    const records = [];
+    staticLocation.backgrounds.forEach((background, backgroundIndex) => {
+        (background.records || []).forEach((record, recordIndex) => {
+            records.push({
+                ...record,
+                staticIndex: records.length,
+                backgroundIndex,
+                backgroundId: background.id,
+                backgroundLabel: background.label,
+                category: background.category,
+                side: background.side || null,
+                recordIndex,
+            });
+        });
+    });
+    return records;
+}
+
+function compareVisualField(label, staticValue, dynamicValue, mismatches) {
+    if (staticValue !== dynamicValue) {
+        mismatches.push({
+            field: label,
+            staticValue,
+            dynamicValue,
+        });
+    }
+}
+
+function compareStaticAndDynamicRecord(staticRecord, dynamicRecord) {
+    if (!dynamicRecord) {
+        return {
+            status: 'missing-dynamic',
+            mismatches: [],
+        };
+    }
+
+    const mismatches = [];
+    compareVisualField('sprite', staticRecord.spriteId, dynamicRecord.spriteId, mismatches);
+    compareVisualField('x', staticRecord.position.x, dynamicRecord.position.x, mismatches);
+    compareVisualField('y', staticRecord.position.y, dynamicRecord.position.y, mismatches);
+    compareVisualField('z', staticRecord.position.z, dynamicRecord.position.z, mismatches);
+    compareVisualField('dimX', staticRecord.dimensions.x, dynamicRecord.dimensions.x, mismatches);
+    compareVisualField('dimY', staticRecord.dimensions.y, dynamicRecord.dimensions.y, mismatches);
+    compareVisualField('dimZ', staticRecord.dimensions.z, dynamicRecord.dimensions.z, mismatches);
+    compareVisualField('flags', staticRecord.flags.raw, dynamicRecord.flags.raw, mismatches);
+
+    return {
+        status: mismatches.length === 0 ? 'exact' : 'mismatch',
+        mismatches,
+    };
+}
+
+function compactRecord(record) {
+    if (!record) return null;
+    return {
+        address: record.address,
+        spriteId: record.spriteId,
+        position: record.position,
+        dimensions: record.dimensions,
+        flags: record.flags ? record.flags.raw : null,
+        raw: record.raw,
+    };
+}
+
+function compareStaticBackgroundsToDynamic(staticLocation, dynamicVisualRecords) {
+    const staticRecords = flattenStaticBackgroundRecords(staticLocation);
+    const dynamicRecords = dynamicVisualRecords || [];
+    const anchorsTrusted = Boolean(
+        staticLocation
+        && staticLocation.comparisons
+        && staticLocation.comparisons.sizeMatchesWorkMemory
+        && staticLocation.comparisons.attrMatchesWorkMemory
+    );
+    const rows = [];
+    let exactCount = 0;
+    let mismatchCount = 0;
+    let missingDynamicCount = 0;
+    let firstIssueIndex = null;
+
+    staticRecords.forEach((staticRecord, index) => {
+        const dynamicRecord = dynamicRecords[index] || null;
+        const comparison = compareStaticAndDynamicRecord(staticRecord, dynamicRecord);
+        if (comparison.status === 'exact') exactCount += 1;
+        if (comparison.status === 'mismatch') mismatchCount += 1;
+        if (comparison.status === 'missing-dynamic') missingDynamicCount += 1;
+        if (comparison.status !== 'exact' && firstIssueIndex === null) {
+            firstIssueIndex = index;
+        }
+        rows.push({
+            index,
+            status: comparison.status,
+            mismatches: comparison.mismatches,
+            staticRecord: compactRecord(staticRecord),
+            staticSource: {
+                backgroundIndex: staticRecord.backgroundIndex,
+                backgroundId: staticRecord.backgroundId,
+                backgroundLabel: staticRecord.backgroundLabel,
+                category: staticRecord.category,
+                side: staticRecord.side,
+                recordIndex: staticRecord.recordIndex,
+            },
+            dynamicRecord: compactRecord(dynamicRecord),
+        });
+    });
+
+    const extraDynamicRecords = dynamicRecords.slice(staticRecords.length);
+    extraDynamicRecords.forEach((dynamicRecord, extraIndex) => {
+        rows.push({
+            index: staticRecords.length + extraIndex,
+            status: 'extra-dynamic',
+            mismatches: [],
+            staticRecord: null,
+            staticSource: null,
+            dynamicRecord: compactRecord(dynamicRecord),
+        });
+    });
+
+    return {
+        strategy: 'ordered static background records vs dynamic visual prefix',
+        staticRecordCount: staticRecords.length,
+        dynamicRecordCount: dynamicRecords.length,
+        comparedPrefixCount: Math.min(staticRecords.length, dynamicRecords.length),
+        anchorsTrusted,
+        exactCount,
+        mismatchCount,
+        missingDynamicCount,
+        extraDynamicCount: extraDynamicRecords.length,
+        firstIssueIndex,
+        prefixStatus: !anchorsTrusted
+            ? 'untrusted'
+            : (
+                mismatchCount === 0 && missingDynamicCount === 0
+                    ? 'exact'
+                    : 'diverged'
+            ),
+        rows,
+    };
+}
+
 function parseStaticCacheSummary(frame) {
     if (!frame || !frame.knightLoreStaticMemory) return null;
     const cache = frame.knightLoreStaticMemory;
@@ -218,6 +641,7 @@ function parseStaticCacheSummary(frame) {
 export function extractKnightLoreScene(source, opts = {}) {
     const {memory, memoryStart, frame} = getMemoryAndStart(source, opts);
     const room = parseRoom(memory, memoryStart);
+    const staticLocation = parseStaticLocation(frame, room);
     const body = readPosition(memory, memoryStart, {
         x: KNIGHT_LORE_MEMORY.player.bodyX,
         y: KNIGHT_LORE_MEMORY.player.bodyY,
@@ -233,7 +657,8 @@ export function extractKnightLoreScene(source, opts = {}) {
         y: KNIGHT_LORE_MEMORY.player.headY,
         z: KNIGHT_LORE_MEMORY.player.headZ,
     });
-    const dynamicSprites = parseDynamicSprites(memory, memoryStart, opts);
+    const dynamicVisualRecords = parseDynamicVisualRecords(memory, memoryStart, opts);
+    const backgroundComparison = compareStaticBackgroundsToDynamic(staticLocation, dynamicVisualRecords);
 
     return {
         memoryStart,
@@ -262,11 +687,24 @@ export function extractKnightLoreScene(source, opts = {}) {
         room: {
             ...room,
             staticCache: parseStaticCacheSummary(frame),
+            staticLocation,
+            staticBackgrounds: staticLocation && staticLocation.backgrounds
+                ? staticLocation.backgrounds
+                : [],
+            staticBackgroundRecords: backgroundComparison.rows
+                .filter(row => row.staticRecord)
+                .map(row => ({
+                    ...row.staticRecord,
+                    staticSource: row.staticSource,
+                })),
+            backgroundComparison,
             dynamicStart: KNIGHT_LORE_MEMORY.dynamicRoomStart,
+            dynamicSlotSize: KNIGHT_LORE_MEMORY.dynamicVisualSlotSize,
             dynamicHeader: readBytes(memory, memoryStart, KNIGHT_LORE_MEMORY.dynamicRoomStart, 8),
-            sprites: dynamicSprites,
+            dynamicVisualRecords,
+            sprites: dynamicVisualRecords,
         },
-        objects: dynamicSprites,
+        objects: dynamicVisualRecords,
         raw: {
             selectedBytes: parseSelectedBytes(memory, memoryStart),
         },

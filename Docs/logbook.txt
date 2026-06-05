@@ -239,3 +239,122 @@ Strict caveats:
 - Treat those size bytes as observed runtime data only, not yet as validated room dimensions.
 - Stage 1 should cross-check the working-memory size/colour values against the static location entry before using them as authoritative room geometry.
 - The main bundle is now larger because Three.js is statically imported. This is acceptable for Stage 0, but a later cleanup can lazy-load the renderer if needed.
+
+## 2026-06-05 - Build Tooling, Room View Polish, and Stage 2 Diagnostics
+
+Build/tooling update:
+
+- Upgraded the JavaScript build stack so the project can use the current Three.js package:
+  - `webpack` upgraded to `5.107.2`;
+  - `webpack-cli` upgraded to `7.0.3`;
+  - `three` upgraded to `0.184.0`;
+  - `jszip`, `pako`, and `npm-watch` were also refreshed.
+- Removed the obsolete SVG loader path and switched SVG handling to webpack asset source modules.
+- Fixed toolbar icon handling in `runtime/ui.js` so inline SVG icons are detected through `querySelector('svg')`.
+- Kept `assemblyscript@0.19.6` for now because the current core still builds and tests with it. A later AssemblyScript migration should be treated as its own task.
+
+Room view and schematic renderer:
+
+- Adjusted the Three.js pane to approximately match the native Spectrum view size.
+- Added CAD-style camera presets:
+  - top/bottom;
+  - left/right;
+  - front/back;
+  - four upper diagonal views, including the original game-like view.
+- Kept the current room box height capped at a display height of 64 units while preserving the raw room-size bytes in the diagnostics.
+- Changed near-facing walls to become highly transparent rather than removed, so orientation and enclosure remain understandable.
+- Added a render-mode toggle:
+  - `Schematic` is currently active;
+  - `Full 3D` is visible but disabled until the detailed renderer exists.
+- Zoomed the orthographic camera framing in slightly so the schematic room fills more of the 3D canvas.
+
+Stage 2 decoding:
+
+- Added static location/background decoding in `runtime/knightlore.js`.
+- The current room's static location entry is found by scanning the location table from `0x6251` to `0x6BD0`.
+- Background ids are read from the room entry until the `0xFF` terminator.
+- Each background id is resolved through the background pointer table at `0x6CE2`.
+- Background records are decoded as 8-byte sprite records:
+  - sprite id;
+  - high-resolution X/Y/Z position;
+  - dimension X/Y/Z;
+  - raw representation flags.
+- Added semantic background classifications for:
+  - arches `0x00..0x07`;
+  - portcullises/rejas `0x08..0x0B`;
+  - wall presets `0x0C..0x0E`;
+  - tree room/fillers `0x0F..0x11`;
+  - fixed backgrounds and high arches `0x12..0x17`.
+
+Dynamic visual records:
+
+- Corrected the dynamic visual parser to use the documented slot spacing:
+  - first visual record at `0x5C88`;
+  - next records at `0x5C88 + n * 0x20`;
+  - only the first 8 bytes of each slot are treated as the visual record.
+- Preserved the old `room.sprites` alias so the existing hidden candidate panel can still work.
+- The parser now treats byte 4 as dimension X, byte 5 as dimension Y/depth, and byte 6 as dimension Z/height.
+
+Stage 2 Three.js schematic:
+
+- Added simple debug geometry for decoded background ids:
+  - wall presets as side bands;
+  - arches as coloured frames;
+  - portcullises as barred frames;
+  - tree/fixed backgrounds as schematic placeholders.
+- The schematic uses background ids for semantic meaning and does not infer arches from neighbouring room ids.
+- Static location dimensions are used as a labelled fallback when working-memory size bytes are invalid or zero.
+- The summary now reports:
+  - room id, colour/attribute, raw size bytes, display box size;
+  - render mode;
+  - geometry size source;
+  - static location address, selector, and attribute;
+  - static/work-memory checks;
+  - background ids and background type counts;
+  - static background sprite count;
+  - dynamic visual slot count.
+
+Stage 2 diagnostics:
+
+- Added an ordered static-background-vs-dynamic-slot comparison.
+- Static background records are flattened in room order and compared against the dynamic visual prefix.
+- The comparison records:
+  - exact matches;
+  - mismatches by field;
+  - missing dynamic records;
+  - extra dynamic records after the static prefix.
+- If the room size/attribute anchors do not match static data, the comparison is marked `untrusted anchors` rather than treated as a reliable mismatch.
+- This currently happens in the automated initial snapshot:
+  - static location decodes room `0x01` at `0x626B`;
+  - static background ids decode as `0x01 0x03 0x0D`;
+  - working-memory size/attribute bytes still show zero/different values in that early state.
+- Recommendation: when validating Stage 2 manually, first navigate to stable gameplay rooms where the working-memory anchors match the static room data, then use the comparison table to judge static-vs-dynamic agreement.
+
+Test harness layout:
+
+- Moved Stage 2 textual diagnostics out from under the Three.js canvas.
+- The lower debug section now shows `Stage 2 Room Diagnostics`.
+- `Selected Raw Bytes` is hidden with the other deferred debug panels, but the underlying update code remains available for later.
+- The 3D pane now stays visually focused on the schematic view.
+
+Verification performed:
+
+- Rebuilt the JavaScript bundles repeatedly with webpack 5.
+- Ran the emulator regression test directly with Node and the WASM module:
+  - the test passed;
+  - the only output was Node's expected experimental WebAssembly module warning.
+- Verified the local `_tests` page with headless Google Chrome:
+  - no page errors;
+  - Three.js canvas remains `640x480`;
+  - render mode toggle reports `Schematic` active and `Full 3D` disabled;
+  - Stage 2 diagnostics are shown in the lower debug section;
+  - selected raw bytes and raw memory dump are hidden;
+  - diagnostics table populates and reports the early automated state as `untrusted anchors`.
+
+Strict caveats:
+
+- The current schematic is intentionally not a faithful textured render.
+- Wall/arch/portcullis geometry is still schematic and type-driven, not exact sprite geometry.
+- Static background records and dynamic records are now compared, but the comparison should only be trusted when the room-level anchors match.
+- Fixed backgrounds such as wizard/cauldron are still placeholders.
+- The Three.js bundle remains large because the renderer is statically imported.

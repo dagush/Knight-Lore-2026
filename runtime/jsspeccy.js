@@ -457,7 +457,9 @@ window.JSSpeccy = (container, opts) => {
     }
 
     const knightLoreStage0Renderer = opts.knightLoreStage0Container
-        ? new KnightLoreStage0Renderer(opts.knightLoreStage0Container)
+        ? new KnightLoreStage0Renderer(opts.knightLoreStage0Container, {
+            diagnosticsContainer: opts.knightLoreStage0DiagnosticsContainer || null,
+        })
         : null;
     if (knightLoreStage0Renderer) {
         emu.on('semanticFrame', frame => {
