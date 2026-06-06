@@ -39,6 +39,8 @@ const STATIC_TABLES = {
     backgroundDataEnd: 0x6f2f,
 };
 
+const PLAYER_DIRECTION_AXIS_THRESHOLD = 0x4c;
+
 const BACKGROUND_TYPES = {
     0x00: {label: 'arch north', category: 'arch', side: 'north'},
     0x01: {label: 'arch east', category: 'arch', side: 'east'},
@@ -83,6 +85,7 @@ const DEBUG_BYTE_DEFINITIONS = [
     ['room.size.z', KNIGHT_LORE_MEMORY.room.sizeZ],
     ['room.id', KNIGHT_LORE_MEMORY.room.id],
     ['player.head.x', KNIGHT_LORE_MEMORY.player.headX],
+    ['player.head.renderXCandidate', KNIGHT_LORE_MEMORY.player.headRenderX],
     ['player.head.y', KNIGHT_LORE_MEMORY.player.headY],
     ['player.head.z', KNIGHT_LORE_MEMORY.player.headZ],
     ['player.head.mirrorFlag', KNIGHT_LORE_MEMORY.player.headMirrorFlag],
@@ -193,16 +196,81 @@ function parseOrientation(memory, memoryStart) {
     const headMirrorFlag = readKnightLoreByte(memory, memoryStart, KNIGHT_LORE_MEMORY.player.headMirrorFlag);
     const headSprite = readKnightLoreByte(memory, memoryStart, KNIGHT_LORE_MEMORY.player.headSprite);
     const bodySprite = readKnightLoreByte(memory, memoryStart, KNIGHT_LORE_MEMORY.player.bodySprite);
+    const documentedOrientation = classifyPlayerSprite(
+        headSprite,
+        bodyMirrorFlag,
+        '0x5C41 sprite + 0x5C0F axis threshold'
+    );
+    const headOrientation = classifyPlayerSprite(
+        headSprite,
+        headMirrorFlag,
+        '0x5C41 sprite + 0x5C2F axis threshold'
+    );
+    const bodyOrientation = classifyPlayerSprite(
+        bodySprite,
+        bodyMirrorFlag,
+        '0x5C45 sprite + 0x5C0F axis threshold'
+    );
+    const visualOrientation = documentedOrientation || bodyOrientation;
 
     return {
-        label: 'unknown',
-        mirrored: Boolean(bodyMirrorFlag || headMirrorFlag),
+        label: visualOrientation ? visualOrientation.axisFacing : 'unknown',
+        mirrored: Boolean(visualOrientation && visualOrientation.axisPair === 'north/south'),
+        mirrorMeaning: 'direction axis is selected by flag >= 0x'
+            + PLAYER_DIRECTION_AXIS_THRESHOLD.toString(16).padStart(2, '0'),
+        directionAxisThreshold: PLAYER_DIRECTION_AXIS_THRESHOLD,
+        mirrorFlagsConsistent: bodyMirrorFlag === headMirrorFlag,
+        spriteMirrorKey: [
+            headSprite === null ? '--' : headSprite.toString(16).padStart(2, '0'),
+            bodySprite === null ? '--' : bodySprite.toString(16).padStart(2, '0'),
+            bodyMirrorFlag === null ? '--' : bodyMirrorFlag.toString(16).padStart(2, '0'),
+            headMirrorFlag === null ? '--' : headMirrorFlag.toString(16).padStart(2, '0'),
+        ].join(':'),
         bodyMirrorFlag,
         headMirrorFlag,
         bodyMirrorFlagBits: flagBits(bodyMirrorFlag),
         headMirrorFlagBits: flagBits(headMirrorFlag),
         headSprite,
         bodySprite,
+        documentedOrientation,
+        primaryOrientation: visualOrientation,
+        visualFacing: visualOrientation ? visualOrientation.axisFacing : null,
+        visualAxisPair: visualOrientation ? visualOrientation.axisPair : null,
+        visualFacingSource: visualOrientation ? visualOrientation.source : 'unclassified sprite/mirror combination',
+        bodyOrientation,
+        headOrientation,
+        state: {
+            label: visualOrientation ? visualOrientation.state : 'unclassified',
+            source: visualOrientation ? visualOrientation.source : 'sprite table pending validation',
+        },
+    };
+}
+
+function classifyPlayerSprite(spriteId, mirrorFlag, source) {
+    if (spriteId === null || spriteId === undefined) return null;
+    const directionFlag = mirrorFlag || 0;
+    const usesYAxis = directionFlag >= PLAYER_DIRECTION_AXIS_THRESHOLD;
+    const lowerSpriteId = spriteId & 0xff;
+    const spriteGroups = {
+        0x18: {state: 'human', westEastAxisFacing: '-X', northSouthAxisFacing: '+Y'},
+        0x19: {state: 'human', westEastAxisFacing: '+X', northSouthAxisFacing: '-Y'},
+        0x1d: {state: 'wolf', westEastAxisFacing: '-X', northSouthAxisFacing: '+Y'},
+        0x1e: {state: 'wolf', westEastAxisFacing: '+X', northSouthAxisFacing: '-Y'},
+        0x1f: {state: 'wolf', westEastAxisFacing: '+X', northSouthAxisFacing: '-Y'},
+    };
+    const group = spriteGroups[lowerSpriteId];
+    if (!group) return null;
+
+    return {
+        spriteId,
+        mirrorFlag,
+        directionAxisThreshold: PLAYER_DIRECTION_AXIS_THRESHOLD,
+        mirrored: usesYAxis,
+        state: group.state,
+        axisPair: usesYAxis ? 'north/south' : 'west/east',
+        axisFacing: usesYAxis ? group.northSouthAxisFacing : group.westEastAxisFacing,
+        source: source + ', Figure 17 threshold 0x'
+            + PLAYER_DIRECTION_AXIS_THRESHOLD.toString(16).padStart(2, '0'),
     };
 }
 
@@ -675,12 +743,16 @@ export function extractKnightLoreScene(source, opts = {}) {
             body: {
                 ...body,
                 screenPosition: body,
+                renderPosition: body,
             },
             head: {
                 ...head,
                 screenPosition: headOverlayPosition,
                 highResolutionPosition: toHighResolutionPosition(head),
+                semanticPosition: head,
+                renderPositionCandidate: headOverlayPosition,
                 overlayPosition: headOverlayPosition,
+                renderPositionSource: '0x5C29,0x5C2A,0x5C2B',
             },
             orientation: parseOrientation(memory, memoryStart),
         },

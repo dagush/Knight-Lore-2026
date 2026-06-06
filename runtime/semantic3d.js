@@ -23,6 +23,27 @@ const CAMERA_FRUSTUM_RADIUS_SCALE = 1.72;
 const WALL_OPACITY = 0.3;
 const VIEWER_WALL_OPACITY = 0.07;
 const FLOOR_OPACITY = 0.18;
+const PLAYER_BODY_SIZE = {width: 7, height: 14, depth: 9};
+const PLAYER_HEAD_SIZE = {width: 6, height: 6, depth: 7};
+const PLAYER_HEAD_FALLBACK_OFFSET = new THREE.Vector3(0, 16.5, -2.5);
+const PLAYER_POINTER_OFFSET = new THREE.Vector3(0, 8, -13);
+const PLAYER_HEAD_MAX_HORIZONTAL_OFFSET = 24;
+const PLAYER_MOVEMENT_EPSILON = 0.6;
+
+const PLAYER_AXIS_TO_SCENE_FACING = {
+    '+X': 'east',
+    '-X': 'west',
+    '+Y': 'north',
+    '-Y': 'south',
+};
+
+const FLOOR_DIRECTION_LABELS = [
+    {side: 'north', label: 'north'},
+    {side: 'south', label: 'south'},
+    {side: 'east', label: 'east'},
+    {side: 'west', label: 'west'},
+];
+const DIRECTION_LABEL_EDGE_INSET = 10;
 
 const BACKGROUND_DEBUG_COLORS = {
     arch: 0xfacc15,
@@ -107,6 +128,22 @@ function formatRoomSize(size) {
         size.y === null || size.y === undefined ? '--' : size.y,
         size.z === null || size.z === undefined ? '--' : size.z,
     ].join(', ');
+}
+
+function isFinitePosition(position) {
+    return Boolean(
+        position
+        && Number.isFinite(position.x)
+        && Number.isFinite(position.y)
+        && Number.isFinite(position.z)
+    );
+}
+
+function isZeroPosition(position) {
+    return isFinitePosition(position)
+        && position.x === 0
+        && position.y === 0
+        && position.z === 0;
 }
 
 function roomColorFromAttribute(value) {
@@ -196,6 +233,73 @@ function roomDimensionsFromRoom(room) {
     };
 }
 
+function looksLikeHighResolutionPosition(position) {
+    return isFinitePosition(position)
+        && (
+            position.x >= 72
+            || position.y >= 72
+            || position.z >= 96
+        );
+}
+
+function mapKnightLorePositionToScene(position, roomDimensions) {
+    if (!isFinitePosition(position)) return null;
+
+    if (looksLikeHighResolutionPosition(position)) {
+        return {
+            source: 'high-res bytes',
+            vector: new THREE.Vector3(
+                (position.x - 128) / 2,
+                Math.max(0, (position.z - 128) / 2),
+                (128 - position.y) / 2
+            ),
+        };
+    }
+
+    return {
+        source: 'room-local bytes',
+        vector: new THREE.Vector3(
+            position.x - roomDimensions.width / 2,
+            Math.max(0, position.z),
+            roomDimensions.depth / 2 - position.y
+        ),
+    };
+}
+
+function distanceXZ(a, b) {
+    const dx = a.x - b.x;
+    const dz = a.z - b.z;
+    return Math.sqrt(dx * dx + dz * dz);
+}
+
+function facingFromDelta(delta) {
+    if (Math.abs(delta.x) < PLAYER_MOVEMENT_EPSILON && Math.abs(delta.z) < PLAYER_MOVEMENT_EPSILON) {
+        return null;
+    }
+    if (Math.abs(delta.x) >= Math.abs(delta.z)) {
+        return delta.x >= 0 ? 'east' : 'west';
+    }
+    return delta.z >= 0 ? 'south' : 'north';
+}
+
+function sceneFacingFromGameAxis(axisFacing) {
+    return PLAYER_AXIS_TO_SCENE_FACING[axisFacing] || axisFacing || null;
+}
+
+function rotationForFacing(facing) {
+    switch (facing) {
+        case 'east':
+            return -Math.PI / 2;
+        case 'south':
+            return Math.PI;
+        case 'west':
+            return Math.PI / 2;
+        case 'north':
+        default:
+            return 0;
+    }
+}
+
 function createMaterial(color, opacity) {
     return new THREE.MeshBasicMaterial({
         color,
@@ -220,6 +324,30 @@ function backgroundDebugColor(background) {
     return BACKGROUND_DEBUG_COLORS[background.category] || BACKGROUND_DEBUG_COLORS['unknown-background'];
 }
 
+function formatPlayerSprites(orientation) {
+    if (!orientation) return '--';
+    return 'head ' + formatHex(orientation.headSprite, 2)
+        + ', body ' + formatHex(orientation.bodySprite, 2);
+}
+
+function formatPlayerMirrors(orientation) {
+    if (!orientation) return '--';
+    return 'body ' + formatHex(orientation.bodyMirrorFlag, 2)
+        + ', head ' + formatHex(orientation.headMirrorFlag, 2)
+        + ', axis threshold ' + formatHex(orientation.directionAxisThreshold, 2);
+}
+
+function formatOrientationCandidate(candidate) {
+    if (!candidate) return '--';
+    return formatHex(candidate.spriteId, 2)
+        + '/'
+        + candidate.state
+        + '/'
+        + candidate.axisPair
+        + '/'
+        + candidate.axisFacing;
+}
+
 export class KnightLoreStage0Renderer {
     constructor(container, opts = {}) {
         this.container = container;
@@ -229,6 +357,11 @@ export class KnightLoreStage0Renderer {
         this.staticMemory = null;
         this.lastRoomSignature = '';
         this.lastStaticBackgroundSignature = '';
+        this.lastPlayerScenePosition = null;
+        this.lastPlayerFacing = 'north';
+        this.lastPointerAxisFacing = null;
+        this.hasSeenGameplayRoom = false;
+        this.playerProxyInfo = null;
         this.roomDimensions = {...DEFAULT_ROOM_DIMENSIONS};
         this.activeViewPreset = 'game';
         this.activeRenderMode = 'schematic';
@@ -285,6 +418,17 @@ export class KnightLoreStage0Renderer {
 
         this.canvasHost = document.createElement('div');
         this.canvasHost.className = 'knight-lore-stage0-canvas';
+        this.directionOverlayElement = document.createElement('div');
+        this.directionOverlayElement.className = 'knight-lore-direction-overlay';
+        this.directionLabelElements = new Map();
+        FLOOR_DIRECTION_LABELS.forEach(item => {
+            const label = document.createElement('span');
+            label.className = 'knight-lore-direction-label is-' + item.side;
+            label.textContent = item.label;
+            label.dataset.side = item.side;
+            this.directionLabelElements.set(item.side, label);
+            this.directionOverlayElement.appendChild(label);
+        });
         this.summaryElement = document.createElement('div');
         this.summaryElement.className = 'knight-lore-stage0-summary';
         this.summaryElement.textContent = 'Waiting for semantic frame...';
@@ -307,9 +451,12 @@ export class KnightLoreStage0Renderer {
         this.renderer.setClearColor(0x1b2026, 1);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
         this.canvasHost.appendChild(this.renderer.domElement);
+        this.canvasHost.appendChild(this.directionOverlayElement);
 
-        this.scene.add(new THREE.GridHelper(200, 10, 0x6b7280, 0x374151));
-        this.scene.add(new THREE.AxesHelper(72));
+        this.gridHelper = new THREE.GridHelper(200, 10, 0x6b7280, 0x374151);
+        this.axesHelper = new THREE.AxesHelper(72);
+        this.scene.add(this.gridHelper);
+        this.scene.add(this.axesHelper);
 
         this.floorMaterial = createMaterial(0x7dd3fc, FLOOR_OPACITY);
         this.wallMaterial = createMaterial(0x7dd3fc, WALL_OPACITY);
@@ -339,6 +486,37 @@ export class KnightLoreStage0Renderer {
         this.staticBackgroundGroup = new THREE.Group();
         this.scene.add(this.staticBackgroundGroup);
 
+        this.playerGroup = new THREE.Group();
+        this.playerGroup.visible = false;
+        this.playerHumanMaterial = new THREE.MeshBasicMaterial({color: 0xf97316});
+        this.playerWolfMaterial = new THREE.MeshBasicMaterial({color: 0x2563eb});
+        this.playerUnknownMaterial = new THREE.MeshBasicMaterial({color: 0x94a3b8});
+        this.playerPointerMaterial = new THREE.MeshBasicMaterial({color: 0x38bdf8});
+        this.playerPointerFallbackMaterial = new THREE.MeshBasicMaterial({color: 0x94a3b8});
+        this.playerBodyMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(PLAYER_BODY_SIZE.width, PLAYER_BODY_SIZE.height, PLAYER_BODY_SIZE.depth),
+            this.playerUnknownMaterial
+        );
+        this.playerBodyMesh.position.y = PLAYER_BODY_SIZE.height / 2;
+        this.playerHeadMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(PLAYER_HEAD_SIZE.width, PLAYER_HEAD_SIZE.height, PLAYER_HEAD_SIZE.depth),
+            this.playerUnknownMaterial
+        );
+        this.playerHeadMesh.position.copy(PLAYER_HEAD_FALLBACK_OFFSET);
+        this.playerPointerGroup = new THREE.Group();
+        this.playerPointerMesh = new THREE.Mesh(
+            new THREE.ConeGeometry(3.5, 12, 4),
+            this.playerPointerMaterial
+        );
+        this.playerPointerMesh.rotation.x = -Math.PI / 2;
+        this.playerPointerMesh.position.copy(PLAYER_POINTER_OFFSET);
+        this.playerPointerGroup.add(this.playerPointerMesh);
+        this.playerGroup.add(this.playerBodyMesh);
+        this.playerGroup.add(this.playerHeadMesh);
+        this.playerGroup.add(this.playerPointerGroup);
+        this.scene.add(this.playerGroup);
+        this.setRoomGeometryVisible(false);
+
         window.addEventListener('resize', this.handleResize);
         this.setRenderMode(this.activeRenderMode);
         this.setViewPreset(this.activeViewPreset);
@@ -363,15 +541,39 @@ export class KnightLoreStage0Renderer {
         this.frameCounter += 1;
         this.updateRoomShape();
         this.updateStaticBackgroundGeometry();
+        this.updatePlayerProxy();
         this.updateSummary();
         this.updateComparisonDiagnostics();
         this.render();
     }
 
     updateRoomShape() {
-        const room = this.latestFrame && this.latestFrame.knightLoreScene
-            ? this.latestFrame.knightLoreScene.room
+        const scene = this.latestFrame && this.latestFrame.knightLoreScene
+            ? this.latestFrame.knightLoreScene
             : null;
+        const room = scene ? scene.room : null;
+        const hasRoom = Boolean(room && room.id !== null && room.id !== undefined);
+        const hasGameplayPlayer = Boolean(
+            scene
+            && scene.player
+            && isFinitePosition(scene.player.body)
+            && scene.player.orientation
+            && scene.player.orientation.visualFacing
+        );
+        if (hasRoom && hasGameplayPlayer) {
+            this.hasSeenGameplayRoom = true;
+        }
+
+        const showRoomGeometry = hasRoom && this.hasSeenGameplayRoom;
+        this.setRoomGeometryVisible(showRoomGeometry);
+        if (!showRoomGeometry) {
+            this.clearStaticBackgroundGeometry();
+            this.lastStaticBackgroundSignature = '';
+            this.lastRoomSignature = '';
+            this.playerGroup.visible = false;
+            this.updateDirectionOverlayLabels();
+            return;
+        }
         const signature = room
             ? [room.id, room.colourAttribute, room.size.x, room.size.y, room.size.z].join(':')
             : '';
@@ -420,6 +622,22 @@ export class KnightLoreStage0Renderer {
         this.roomEdges.position.set(0, dimensions.height / 2, 0);
         this.setViewPreset(this.activeViewPreset);
         this.updateWallVisibility();
+    }
+
+    setRoomGeometryVisible(visible) {
+        if (this.gridHelper) this.gridHelper.visible = visible;
+        if (this.axesHelper) this.axesHelper.visible = visible;
+        if (this.floorMesh) this.floorMesh.visible = visible;
+        if (this.roomEdges) this.roomEdges.visible = visible;
+        if (this.staticBackgroundGroup) this.staticBackgroundGroup.visible = visible;
+        if (this.directionOverlayElement) {
+            this.directionOverlayElement.hidden = !visible;
+        }
+        if (this.wallMeshes) {
+            this.wallMeshes.forEach(wall => {
+                wall.visible = visible;
+            });
+        }
     }
 
     updateStaticBackgroundGeometry() {
@@ -631,9 +849,130 @@ export class KnightLoreStage0Renderer {
         }
     }
 
+    updatePlayerProxy() {
+        const scene = this.latestFrame && this.latestFrame.knightLoreScene;
+        const player = scene ? scene.player : null;
+        if (!player || !isFinitePosition(player.body)) {
+            this.playerGroup.visible = false;
+            this.playerProxyInfo = null;
+            return;
+        }
+        const room = scene ? scene.room : null;
+        if (!room || room.id === null || room.id === undefined) {
+            this.playerGroup.visible = false;
+            this.playerProxyInfo = null;
+            return;
+        }
+        const orientation = player.orientation || {};
+        if (!orientation.visualFacing) {
+            this.playerGroup.visible = false;
+            this.playerProxyInfo = null;
+            return;
+        }
+
+        const body = mapKnightLorePositionToScene(player.body, this.roomDimensions);
+        if (!body) {
+            this.playerGroup.visible = false;
+            this.playerProxyInfo = null;
+            return;
+        }
+
+        const previousPosition = this.lastPlayerScenePosition;
+        this.playerGroup.visible = true;
+        this.playerGroup.position.copy(body.vector);
+
+        const movementFacing = previousPosition
+            ? facingFromDelta(body.vector.clone().sub(previousPosition))
+            : null;
+        if (movementFacing) {
+            this.lastPlayerFacing = movementFacing;
+        }
+        this.lastPlayerScenePosition = body.vector.clone();
+        this.playerGroup.rotation.y = 0;
+
+        const stateLabel = orientation.state ? orientation.state.label : 'unclassified';
+        const playerStateMaterial = stateLabel === 'human'
+            ? this.playerHumanMaterial
+            : stateLabel === 'wolf'
+                ? this.playerWolfMaterial
+                : this.playerUnknownMaterial;
+        this.playerBodyMesh.material = playerStateMaterial;
+        this.playerHeadMesh.material = playerStateMaterial;
+        const classifiedAxisFacing = orientation.visualFacing || null;
+        if (classifiedAxisFacing) {
+            this.lastPointerAxisFacing = classifiedAxisFacing;
+        }
+
+        const pointerAxisFacing = classifiedAxisFacing || this.lastPointerAxisFacing;
+        const pointerFacing = sceneFacingFromGameAxis(pointerAxisFacing) || this.lastPlayerFacing;
+        const pointerLabel = pointerAxisFacing
+            ? pointerAxisFacing + '/' + pointerFacing
+            : pointerFacing;
+        const pointerSource = classifiedAxisFacing
+            ? orientation.visualFacingSource + ', current frame'
+            : (
+                pointerAxisFacing
+                    ? 'last classified orientation held'
+                    : (movementFacing ? 'movement delta fallback' : 'last movement/default fallback')
+            );
+        this.playerPointerGroup.rotation.y = rotationForFacing(pointerFacing);
+        this.playerPointerMesh.material = pointerAxisFacing
+            ? this.playerPointerMaterial
+            : this.playerPointerFallbackMaterial;
+
+        const headCandidatePosition = player.head && player.head.renderPositionCandidate
+            ? player.head.renderPositionCandidate
+            : (player.head ? player.head.screenPosition : null);
+        const head = !isZeroPosition(headCandidatePosition)
+            ? mapKnightLorePositionToScene(headCandidatePosition, this.roomDimensions)
+            : null;
+        const headOffset = head
+            ? head.vector.clone().sub(body.vector)
+            : null;
+        const headHorizontalOffset = headOffset ? distanceXZ(headOffset, new THREE.Vector3()) : Infinity;
+        const useHeadCandidate = Boolean(
+            head
+            && headHorizontalOffset <= PLAYER_HEAD_MAX_HORIZONTAL_OFFSET
+        );
+
+        if (useHeadCandidate) {
+            this.playerHeadMesh.position.set(
+                headOffset.x,
+                PLAYER_HEAD_FALLBACK_OFFSET.y,
+                headOffset.z
+            );
+        } else {
+            this.playerHeadMesh.position.copy(PLAYER_HEAD_FALLBACK_OFFSET);
+        }
+
+        this.playerProxyInfo = {
+            bodySource: body.source,
+            headSource: useHeadCandidate
+                ? head.source + ' from 0x5C29 candidate'
+                : 'attached fallback',
+            facing: this.lastPlayerFacing,
+            facingSource: movementFacing ? 'movement delta' : 'last movement/default',
+            pointerFacing,
+            pointerAxisFacing,
+            classifiedAxisFacing,
+            pointerLabel,
+            pointerSource,
+            mirrored: Boolean(orientation.primaryOrientation && orientation.primaryOrientation.mirrored),
+            mirrorFlagsConsistent: orientation.mirrorFlagsConsistent,
+            directionAxisThreshold: orientation.directionAxisThreshold,
+            visualAxisPair: orientation.visualAxisPair || null,
+            spriteMirrorKey: orientation.spriteMirrorKey || '--',
+            primaryOrientation: orientation.primaryOrientation || null,
+            documentedOrientation: orientation.documentedOrientation || null,
+            bodyOrientation: orientation.bodyOrientation || null,
+            state: stateLabel,
+        };
+    }
+
     updateSummary() {
         const scene = this.latestFrame && this.latestFrame.knightLoreScene;
         const room = scene ? scene.room : null;
+        const player = scene ? scene.player : null;
         const cache = (room && room.staticCache) || this.staticMemory;
         const staticLocation = room ? room.staticLocation : null;
         const decodedLocation = staticLocationForRoom(room);
@@ -679,6 +1018,49 @@ export class KnightLoreStage0Renderer {
             'Dynamic visual slots: ' + dynamicRecords.length + ' @ ' + formatHex(room ? room.dynamicStart : null, 4)
                 + ' step ' + formatHex(room ? room.dynamicSlotSize : null, 2),
             'Static/dynamic prefix: ' + summarizeBackgroundComparison(backgroundComparison),
+            'Player body XYZ: ' + formatRoomSize(player ? player.body : null),
+            'Player head semantic XYZ: ' + formatRoomSize(player && player.head ? player.head.semanticPosition : null),
+            'Player head render XYZ: ' + formatRoomSize(player && player.head ? player.head.renderPositionCandidate : null),
+            'Player sprites: ' + formatPlayerSprites(player ? player.orientation : null),
+            'Player mirror flags: ' + formatPlayerMirrors(player ? player.orientation : null),
+            'Orientation candidates: doc '
+                + formatOrientationCandidate(player && player.orientation ? player.orientation.documentedOrientation : null)
+                + ', body '
+                + formatOrientationCandidate(player && player.orientation ? player.orientation.bodyOrientation : null),
+            'Player proxy: ' + (
+                this.playerProxyInfo
+                    ? [
+                        this.playerProxyInfo.facing,
+                        this.playerProxyInfo.facingSource,
+                        this.playerProxyInfo.bodySource,
+                        this.playerProxyInfo.headSource,
+                        'pointer ' + this.playerProxyInfo.pointerLabel,
+                        this.playerProxyInfo.pointerSource,
+                        'state ' + this.playerProxyInfo.state,
+                        'mirror flags ' + (this.playerProxyInfo.mirrorFlagsConsistent ? 'consistent' : 'differ'),
+                        'key ' + this.playerProxyInfo.spriteMirrorKey,
+                        'pair ' + (this.playerProxyInfo.visualAxisPair || '--'),
+                        'source ' + (
+                            this.playerProxyInfo.primaryOrientation
+                                ? formatHex(this.playerProxyInfo.primaryOrientation.spriteId, 2)
+                                : '--'
+                        ),
+                        'doc ' + formatOrientationCandidate(this.playerProxyInfo.documentedOrientation),
+                        'body ' + formatOrientationCandidate(this.playerProxyInfo.bodyOrientation),
+                        'primary ' + (
+                            this.playerProxyInfo.primaryOrientation
+                                ? formatHex(this.playerProxyInfo.primaryOrientation.spriteId, 2)
+                                    + '/'
+                                    + (this.playerProxyInfo.primaryOrientation.mirrored ? 'mirrored' : 'base')
+                                    + '/'
+                                    + this.playerProxyInfo.primaryOrientation.axisFacing
+                                    + '/'
+                                    + formatHex(this.playerProxyInfo.primaryOrientation.directionAxisThreshold, 2)
+                                : 'unclassified'
+                        ),
+                    ].join(', ')
+                    : 'not available'
+            ),
         ].join('\n');
     }
 
@@ -805,22 +1187,68 @@ export class KnightLoreStage0Renderer {
         this.camera.bottom = -frustumHeight / 2;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(width, height, false);
+        this.updateDirectionOverlayLabels();
     }
 
     render() {
+        this.updateDirectionOverlayLabels();
         this.renderer.render(this.scene, this.camera);
+    }
+
+    updateDirectionOverlayLabels() {
+        if (!this.directionLabelElements || !this.canvasHost) return;
+        const width = this.canvasHost.clientWidth || 0;
+        const height = this.canvasHost.clientHeight || 0;
+        if (!width || !height) return;
+
+        const dimensions = this.roomDimensions;
+        const y = 1;
+        const anchors = {
+            north: new THREE.Vector3(0, y, -dimensions.depth / 2),
+            south: new THREE.Vector3(0, y, dimensions.depth / 2),
+            east: new THREE.Vector3(dimensions.width / 2, y, 0),
+            west: new THREE.Vector3(-dimensions.width / 2, y, 0),
+        };
+
+        this.directionLabelElements.forEach((element, side) => {
+            const projected = anchors[side].clone().project(this.camera);
+            const x = THREE.MathUtils.clamp(
+                (projected.x * 0.5 + 0.5) * width,
+                DIRECTION_LABEL_EDGE_INSET,
+                width - DIRECTION_LABEL_EDGE_INSET
+            );
+            const top = THREE.MathUtils.clamp(
+                (-projected.y * 0.5 + 0.5) * height,
+                DIRECTION_LABEL_EDGE_INSET,
+                height - DIRECTION_LABEL_EDGE_INSET
+            );
+            element.style.left = x + 'px';
+            element.style.top = top + 'px';
+        });
     }
 
     dispose() {
         window.removeEventListener('resize', this.handleResize);
         this.floorMesh.geometry.dispose();
         this.floorMaterial.dispose();
+        this.gridHelper.geometry.dispose();
+        this.gridHelper.material.dispose();
+        this.axesHelper.geometry.dispose();
+        this.axesHelper.material.dispose();
         this.wallMeshes.forEach(wall => {
             wall.geometry.dispose();
         });
         this.wallMaterial.dispose();
         this.viewerWallMaterial.dispose();
         this.clearStaticBackgroundGeometry();
+        this.playerBodyMesh.geometry.dispose();
+        this.playerHeadMesh.geometry.dispose();
+        this.playerPointerMesh.geometry.dispose();
+        this.playerHumanMaterial.dispose();
+        this.playerWolfMaterial.dispose();
+        this.playerUnknownMaterial.dispose();
+        this.playerPointerMaterial.dispose();
+        this.playerPointerFallbackMaterial.dispose();
         this.roomEdges.geometry.dispose();
         this.roomEdges.material.dispose();
         this.renderer.dispose();

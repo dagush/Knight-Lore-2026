@@ -358,3 +358,129 @@ Strict caveats:
 - Static background records and dynamic records are now compared, but the comparison should only be trusted when the room-level anchors match.
 - Fixed backgrounds such as wizard/cauldron are still placeholders.
 - The Three.js bundle remains large because the renderer is statically imported.
+
+## 2026-06-06 - Stage 3 Main Character Proxy and Orientation Validation
+
+Goal:
+
+- Continue Stage 3 by rendering the main character as a simple Three.js proxy.
+- Keep the implementation schematic and data-driven:
+  - body/head primitives for position and state;
+  - a cone pointer for orientation;
+  - no detailed human/wolf modelling yet.
+
+Player data path:
+
+- Kept the working-memory body position anchors:
+  - body X/Y/Z: `0x5C09`, `0x5C0A`, `0x5C0B`.
+- Kept both head-position interpretations visible:
+  - semantic head X/Y/Z: `0x5C20`, `0x5C2A`, `0x5C2B`;
+  - render candidate X/Y/Z: `0x5C29`, `0x5C2A`, `0x5C2B`.
+- The Three.js proxy uses the body position as the primary position and the `0x5C29` head candidate when it remains close enough to the body.
+- Corrected the player Y mapping in the Three.js view so the proxy tracks the emulator room movement correctly.
+
+Orientation rule:
+
+- Replaced earlier mirror-bit guesses with the documented Figure 17 logic supplied from the student's work.
+- The current rule is:
+  - sprite `0x18` means human west/north;
+  - sprite `0x19` means human east/south;
+  - sprite `0x1D` means wolf west/north;
+  - sprite `0x1E` means wolf east/south;
+  - sprite `0x1F` is still accepted as a wolf east/south alias for now.
+- The axis is selected from `0x5C0F`:
+  - if `0x5C0F >= 0x4C`, the direction is north/south;
+  - otherwise, the direction is west/east.
+- The final mapping used by the 3D renderer is:
+  - north = `+Y`;
+  - south = `-Y`;
+  - east = `+X`;
+  - west = `-X`.
+- The cone pointer now uses this classified direction every frame when available.
+- The previous debounce/stabilisation logic was removed because it could make the cone stick until a later sprite change.
+- The renderer only holds the last classified direction for temporarily unclassified frames, such as room/menu transitions.
+
+Human/wolf state:
+
+- The proxy state is classified from the same sprite table used for orientation.
+- Body and head proxy colours now indicate state rather than mirror/direction:
+  - human = orange;
+  - wolf = blue;
+  - unclassified = grey.
+- The cone remains the sole direction indicator.
+
+Three.js player proxy:
+
+- Added a simple player proxy to `runtime/semantic3d.js`:
+  - body box;
+  - head box;
+  - cone direction pointer.
+- The proxy is hidden unless the current semantic frame has:
+  - a valid room id;
+  - a valid body position;
+  - a classified orientation.
+- This prevents the proxy from appearing during menus or other non-gameplay frames.
+
+Room/startup visibility:
+
+- The Three.js panel now starts visually empty.
+- Grid, axes, room box, static geometry, player proxy, and direction labels remain hidden until a valid gameplay frame has been seen.
+- The first valid gameplay frame is gated by the presence of a room id plus a classified player orientation.
+- Static background geometry is cleared during pre-game hiding, but its signature is also reset so doors, arches, portcullises, and other static details rebuild when gameplay starts.
+
+Direction labels:
+
+- Added small orientation labels to the Three.js panel to make visual reports unambiguous.
+- The labels are projected from the actual room-side centers instead of hardcoded to screen edges.
+- The visible labels now follow the current camera/room geometry:
+  - north;
+  - south;
+  - east;
+  - west.
+- Earlier large/floor labels were removed after validation because they were visually distracting and/or misplaced.
+
+Emulator/test-page cleanup:
+
+- Hid the lower toolbar buttons that are not useful for this project:
+  - `Open file`;
+  - `Start tape` / `Stop tape`.
+- Hid the emulator-side head/body validation overlay by default because the player-position analysis has been verified.
+- The hidden debug controls still exist if we need to re-enable the overlay later.
+- Candidate dynamic-record overlays remain available but hidden with the deferred debug UI.
+
+Diagnostics kept:
+
+- The Stage 2/3 diagnostics still show the data needed for strict validation:
+  - room id, colour, size and display box;
+  - static background ids/types and static-vs-dynamic comparison;
+  - player body/head positions;
+  - player sprite bytes and mirror/axis threshold;
+  - orientation candidates for the documented sprite byte and body sprite byte;
+  - player proxy state, source and selected orientation.
+
+Verification performed:
+
+- Rebuilt the JavaScript bundles with webpack after each runtime change.
+- Ran the emulator regression test with Node and the WASM module after the runtime changes:
+  - the test passed;
+  - the only output was Node's expected experimental WebAssembly module warning.
+- Used headless Google Chrome against the local `_tests` page to verify:
+  - no page errors;
+  - cache keys loaded the new bundle;
+  - startup 3D panel is blank before gameplay;
+  - direction labels are present and projected correctly;
+  - `Open file` and `Start tape` toolbar buttons are hidden;
+  - the player-marker overlay checkbox is off by default.
+- Manual visual validation by Gustavo confirmed:
+  - human orientation works correctly;
+  - wolf orientation works after adding sprite `0x1E`;
+  - room colours, sizes and shapes remain correct;
+  - the cone pointer is now visually reliable.
+
+Strict caveats:
+
+- The character is still a proxy, not a faithful sprite or model.
+- The head/body geometry is only a schematic placeholder.
+- The state/orientation table now matches observed behaviour, but `0x1F` remains as a tolerated wolf east/south alias until a future pass confirms whether it is needed.
+- Static room details are still schematic debug geometry; original textures are intentionally not used yet.
+- The page-level hidden debug controls remain in the HTML because they may be useful in later stages.
