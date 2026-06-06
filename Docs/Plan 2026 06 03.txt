@@ -245,6 +245,7 @@ Strict doubts:
 - Dynamic slot termination remains unconfirmed. Recommendation: parse 0x20-byte
   slots conservatively and preserve the full raw slot for each candidate.
 
+
 Stage 5 - Moving, animated, and hazardous objects
 -------------------------------------------------
 
