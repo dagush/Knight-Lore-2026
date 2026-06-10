@@ -22,6 +22,46 @@ import tapePauseIcon from './icons/tape_pause.svg';
 
 const scriptUrl = document.currentScript.src;
 
+function parsePokeNumber(value) {
+    if (typeof value === 'number') return value;
+    if (typeof value !== 'string') return null;
+
+    const text = value.trim().toLowerCase();
+    if (!text) return null;
+    if (text.startsWith('&')) return parseInt(text.slice(1), 16);
+    if (text.startsWith('$')) return parseInt(text.slice(1), 16);
+    return Number(text);
+}
+
+function normalizePokes(pokes, opts = {}) {
+    if (!Array.isArray(pokes)) return [];
+
+    const parsedDefaultAddressBase = parsePokeNumber(opts.addressBase);
+    const defaultAddressBase = Number.isFinite(parsedDefaultAddressBase)
+        ? parsedDefaultAddressBase
+        : 0;
+    return pokes.reduce((normalized, poke) => {
+        if (!poke || poke.enabled === false) return normalized;
+
+        const isPair = Array.isArray(poke);
+        const rawAddress = parsePokeNumber(isPair ? poke[0] : poke.address);
+        const rawValue = parsePokeNumber(isPair ? poke[1] : poke.value);
+        const rawBase = isPair ? defaultAddressBase : parsePokeNumber(poke.addressBase);
+        const addressBase = Number.isFinite(rawBase) ? rawBase : defaultAddressBase;
+        const label = isPair ? (poke[2] || '') : (poke.label || '');
+
+        if (!Number.isFinite(rawAddress) || !Number.isFinite(rawValue)) return normalized;
+        normalized.push({
+            address: (rawAddress + addressBase) & 0xffff,
+            value: rawValue & 0xff,
+            label,
+            sourceAddress: rawAddress & 0xffff,
+            addressBase: addressBase & 0xffff,
+        });
+        return normalized;
+    }, []);
+}
+
 class Emulator extends EventEmitter {
     constructor(canvas, opts) {
         super();
@@ -43,6 +83,11 @@ class Emulator extends EventEmitter {
         this.tapeIsPlaying = false;
         this.tapeTrapsEnabled = ('tapeTrapsEnabled' in opts) ? opts.tapeTrapsEnabled : true;
         this.knightLoreStaticMemory = null;
+        this.pokeAddressBase = opts.pokeAddressBase || 0;
+        this.configuredPokes = normalizePokes(opts.pokes || [], {
+            addressBase: this.pokeAddressBase,
+        });
+        this.onPokesApplied = opts.onPokesApplied || null;
 
         this.msPerFrame = 20;
 
@@ -52,6 +97,8 @@ class Emulator extends EventEmitter {
 
         this.nextFileOpenID = 0;
         this.fileOpenPromiseResolutions = {};
+        this.nextPokeApplyID = 0;
+        this.pokeApplyPromiseResolutions = {};
 
         this.onSemanticFrame = opts.onSemanticFrame || null;
 
@@ -115,6 +162,9 @@ class Emulator extends EventEmitter {
                         this.knightLoreStaticMemory = e.data.knightLoreStaticMemory;
                         this.emit('knightLoreStaticMemory', this.knightLoreStaticMemory);
                     }
+                    if (e.data.pokeResults && e.data.pokeResults.length > 0) {
+                        this.handlePokesApplied(e.data.pokeResults, 'snapshot load');
+                    }
                     if (e.data.mediaType == 'tape' && this.autoLoadTapes) {
                         const TAPE_LOADERS_BY_MACHINE = {
                             '48': {'default': 'tapeloaders/tape_48.szx', 'usr0': 'tapeloaders/tape_48.szx'},
@@ -134,6 +184,20 @@ class Emulator extends EventEmitter {
                         this.emit('openedTapeFile');
                     }
                     break;
+                case 'pokesApplied':
+                    if (e.data.knightLoreStaticMemory) {
+                        this.knightLoreStaticMemory = e.data.knightLoreStaticMemory;
+                        this.emit('knightLoreStaticMemory', this.knightLoreStaticMemory);
+                    }
+                    const pokePayload = this.handlePokesApplied(
+                        e.data.pokeResults || [],
+                        e.data.reason || 'manual'
+                    );
+                    if (e.data.id in this.pokeApplyPromiseResolutions) {
+                        this.pokeApplyPromiseResolutions[e.data.id](pokePayload);
+                        delete this.pokeApplyPromiseResolutions[e.data.id];
+                    }
+                    break;
                 case 'playingTape':
                     this.tapeIsPlaying = true;
                     this.emit('playingTape');
@@ -150,6 +214,18 @@ class Emulator extends EventEmitter {
             message: 'loadCore',
             baseUrl: scriptUrl,
         })
+    }
+
+    handlePokesApplied(results, reason) {
+        const payload = {
+            reason,
+            results,
+        };
+        if (this.onPokesApplied) {
+            this.onPokesApplied(payload);
+        }
+        this.emit('pokesApplied', payload);
+        return payload;
     }
 
     start() {
@@ -269,10 +345,33 @@ class Emulator extends EventEmitter {
             message: 'loadSnapshot',
             id: fileID,
             snapshot,
+            pokes: this.configuredPokes,
         })
         this.emit('setMachine', snapshot.model);
         return new Promise((resolve, reject) => {
             this.fileOpenPromiseResolutions[fileID] = resolve;
+        });
+    }
+
+    applyPokes(pokes = this.configuredPokes) {
+        const normalizedPokes = normalizePokes(pokes, {
+            addressBase: this.pokeAddressBase,
+        });
+        if (normalizedPokes.length === 0) {
+            return Promise.resolve({
+                reason: 'manual',
+                results: [],
+            });
+        }
+
+        const pokeApplyID = this.nextPokeApplyID++;
+        this.worker.postMessage({
+            message: 'applyPokes',
+            id: pokeApplyID,
+            pokes: normalizedPokes,
+        });
+        return new Promise((resolve) => {
+            this.pokeApplyPromiseResolutions[pokeApplyID] = resolve;
         });
     }
 
@@ -282,6 +381,7 @@ class Emulator extends EventEmitter {
             message: 'openTAPFile',
             id: fileID,
             data,
+            pokes: this.configuredPokes,
         })
         return new Promise((resolve, reject) => {
             this.fileOpenPromiseResolutions[fileID] = resolve;
@@ -294,6 +394,7 @@ class Emulator extends EventEmitter {
             message: 'openTZXFile',
             id: fileID,
             data,
+            pokes: this.configuredPokes,
         })
         return new Promise((resolve, reject) => {
             this.fileOpenPromiseResolutions[fileID] = resolve;
@@ -439,6 +540,9 @@ window.JSSpeccy = (container, opts) => {
         tapeAutoLoadMode: opts.tapeAutoLoadMode || 'default',
         openUrl: opts.openUrl,
         onSemanticFrame: opts.onSemanticFrame,
+        onPokesApplied: opts.onPokesApplied,
+        pokes: opts.pokes || [],
+        pokeAddressBase: opts.pokeAddressBase || 0,
         tapeTrapsEnabled: ('tapeTrapsEnabled' in opts) ? opts.tapeTrapsEnabled : true,
         keyboardEnabled: keyboardEnabled,
         keyboardMap: opts.keyboardMap || 'standard',
@@ -761,6 +865,9 @@ window.JSSpeccy = (container, opts) => {
         loadSnapshotFromStruct: (snapshot) => {
             emu.loadSnapshot(snapshot);
         },
+        applyPokes: (pokes) => {
+            return emu.applyPokes(pokes);
+        },
         onReady: (callback) => {
             if (emu.isReady) {
                 callback();
@@ -773,6 +880,9 @@ window.JSSpeccy = (container, opts) => {
         },
         onKnightLoreStaticMemory: (callback) => {
             emu.on('knightLoreStaticMemory', callback);
+        },
+        onPokesApplied: (callback) => {
+            emu.on('pokesApplied', callback);
         },
         exit: () => {exit();},
     };

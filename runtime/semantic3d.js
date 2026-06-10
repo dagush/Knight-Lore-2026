@@ -29,6 +29,100 @@ const PLAYER_HEAD_FALLBACK_OFFSET = new THREE.Vector3(0, 16.5, -2.5);
 const PLAYER_POINTER_OFFSET = new THREE.Vector3(0, 8, -13);
 const PLAYER_HEAD_MAX_HORIZONTAL_OFFSET = 24;
 const PLAYER_MOVEMENT_EPSILON = 0.6;
+const OBJECT_WIREFRAME_MAX_RECORDS = 96;
+const ITEM_MARKER_SIZE = 5;
+const SPELL_MARKER_SIZE = 6;
+const CAULDRON_ROOM_ID = 0x88;
+const KNIGHT_LORE_SCRATCH_START = 0x5ba0;
+const KNIGHT_LORE_DYNAMIC_ROOM_START = 0x5c88;
+const KNIGHT_LORE_DYNAMIC_VISUAL_SLOT_SIZE = 0x20;
+const SPELL_PROBE_ADDRESS = 0x5c68;
+const SPELL_CYCLE_VALUES = [0xa0, 0xa1, 0xa2, 0xa3];
+const SPELL_ATTACK_VALUES = [0xa4, 0xa5, 0xa6, 0xa7];
+const SPELL_ITEM_DISPLAY_VALUES = [0xae];
+const SPELL_OBSERVED_VALUES = [...SPELL_CYCLE_VALUES, ...SPELL_ATTACK_VALUES, ...SPELL_ITEM_DISPLAY_VALUES];
+const SPELL_OBSERVED_VALUE_SET = new Set(SPELL_OBSERVED_VALUES);
+const SPELL_PROBE_WINDOW_BEFORE = 8;
+const SPELL_PROBE_WINDOW_AFTER = 15;
+const ROOM_COLOUR_REFERENCE_ADDRESS = 0x5bad;
+const ROOM_COLOUR_CANDIDATE_VALUE = 0x45;
+const ROOM_COLOUR_WORKING_WINDOW_BEFORE = 12;
+const ROOM_COLOUR_WORKING_WINDOW_AFTER = 12;
+const ROOM_COLOUR_ATTRIBUTE_MEMORY_START = 0x5800;
+const ROOM_COLOUR_ATTRIBUTE_MEMORY_END = 0x5b00;
+const ROOM_COLOUR_CHANGE_HOLD_FRAMES = 90;
+const WIZARD_DYNAMIC_ROWS_BY_ROOM = {
+    [CAULDRON_ROOM_ID]: [8, 9],
+};
+
+const ITEM_MARKER_COLORS = [
+    0xef4444,
+    0x22c55e,
+    0x3b82f6,
+    0xfacc15,
+    0xec4899,
+    0x14b8a6,
+    0xf97316,
+    0xa855f7,
+];
+
+const DYNAMIC_OBJECT_ID_SCAN_START = 8;
+const SPECIAL_DYNAMIC_OBJECTS_BY_OBJECT_ID = {
+    0x10: {
+        label: 'cauldron',
+        category: 'cauldron',
+        source: 'working-memory object id 0x10, disassembly test',
+    },
+    0x1a: {
+        label: 'wizard body candidate',
+        category: 'wizard',
+        source: 'working-memory object id 0x1A, neighbour of wizard head id',
+    },
+    0x1b: {
+        label: 'wizard head',
+        category: 'wizard',
+        source: 'working-memory object id 0x1B, disassembly test',
+    },
+    0x1c: {
+        label: 'wizard body candidate',
+        category: 'wizard',
+        source: 'working-memory object id 0x1C, neighbour of wizard head id',
+    },
+};
+const SPECIAL_OBJECT_WIREFRAME_COLORS = {
+    cauldron: 0x14b8a6,
+    wizard: 0xa855f7,
+};
+const LIVE_FIXED_BACKGROUND_IDS = new Set([0x12]);
+
+const FIXED_BACKGROUND_MARKERS = {
+    0x12: {
+        label: 'wizard',
+        color: 0xa855f7,
+        opacity: 0.76,
+        fallbackSize: {width: 8, height: 18, depth: 8},
+    },
+    0x13: {
+        label: 'cauldron',
+        color: 0x14b8a6,
+        opacity: 0.82,
+        fallbackSize: {width: 12, height: 10, depth: 12},
+    },
+};
+const SPECIAL_DYNAMIC_MARKERS = {
+    cauldron: {
+        label: 'cauldron',
+        color: 0x14b8a6,
+        opacity: 0.82,
+        fallbackSize: {width: 12, height: 10, depth: 12},
+    },
+    wizard: {
+        label: 'wizard',
+        color: 0xa855f7,
+        opacity: 0.78,
+        fallbackSize: {width: 8, height: 18, depth: 8},
+    },
+};
 
 const PLAYER_AXIS_TO_SCENE_FACING = {
     '+X': 'east',
@@ -130,6 +224,15 @@ function formatRoomSize(size) {
     ].join(', ');
 }
 
+function formatSceneVector(vector) {
+    if (!vector) return '--, --, --';
+    return [
+        Number.isFinite(vector.x) ? vector.x.toFixed(1) : '--',
+        Number.isFinite(vector.y) ? vector.y.toFixed(1) : '--',
+        Number.isFinite(vector.z) ? vector.z.toFixed(1) : '--',
+    ].join(', ');
+}
+
 function isFinitePosition(position) {
     return Boolean(
         position
@@ -179,6 +282,339 @@ function formatMismatchList(mismatches) {
     if (!mismatches || mismatches.length === 0) return '';
     const fields = mismatches.map(item => item.field).join(',');
     return ' (' + fields + ')';
+}
+
+function formatByteList(bytes) {
+    if (!bytes || bytes.length === 0) return '--';
+    return bytes.map(value => formatHex(value, 2)).join(' ');
+}
+
+function formatAddressList(addresses) {
+    if (!addresses || addresses.length === 0) return '--';
+    return addresses.map(address => formatRecordAddress(address)).join(' ');
+}
+
+function formatHexList(values, digits = 2) {
+    if (!values || values.length === 0) return '--';
+    return values.map(value => formatHex(value, digits)).join(' ');
+}
+
+function countByteValues(bytes) {
+    const counts = new Map();
+    if (!bytes) return counts;
+    for (const value of bytes) {
+        counts.set(value, (counts.get(value) || 0) + 1);
+    }
+    return counts;
+}
+
+function formatTopByteCounts(counts, limit = 8) {
+    if (!counts || counts.size === 0) return '--';
+    return Array.from(counts.entries())
+        .sort((a, b) => b[1] - a[1] || a[0] - b[0])
+        .slice(0, limit)
+        .map(([value, count]) => formatHex(value, 2) + ':' + count)
+        .join(' ');
+}
+
+function findByteAddresses(bytes, startAddress, targetValue, limit = 12) {
+    if (!bytes || !Number.isFinite(startAddress)) return [];
+    const addresses = [];
+    for (let offset = 0; offset < bytes.length && addresses.length < limit; offset++) {
+        if (bytes[offset] === targetValue) addresses.push(startAddress + offset);
+    }
+    return addresses;
+}
+
+function classifySpellProbeValue(value) {
+    if (SPELL_CYCLE_VALUES.includes(value)) return 'spell cycle';
+    if (SPELL_ATTACK_VALUES.includes(value)) return 'wolf attack';
+    if (SPELL_ITEM_DISPLAY_VALUES.includes(value)) return 'item display?';
+    return 'other';
+}
+
+function readFrameMemoryByte(frame, address) {
+    const memoryStart = frame && Number.isFinite(frame.memoryStart) ? frame.memoryStart : null;
+    const memory = frame && frame.semanticMemory ? frame.semanticMemory : null;
+    if (memoryStart === null || !memory || !Number.isFinite(address)) return null;
+
+    const offset = address - memoryStart;
+    if (offset < 0 || offset >= memory.length) return null;
+    return memory[offset];
+}
+
+function readFrameMemoryWindow(frame, startAddress, length) {
+    if (!frame || !frame.semanticMemory || !Number.isFinite(startAddress) || length <= 0) return [];
+
+    const bytes = [];
+    for (let offset = 0; offset < length; offset++) {
+        bytes.push(readFrameMemoryByte(frame, startAddress + offset));
+    }
+    return bytes;
+}
+
+function scanFrameMemoryForBytes(frame, targetBytes) {
+    const memoryStart = frame && Number.isFinite(frame.memoryStart) ? frame.memoryStart : null;
+    const memory = frame && frame.semanticMemory ? frame.semanticMemory : null;
+    if (memoryStart === null || !memory) return [];
+
+    const targets = targetBytes instanceof Set ? targetBytes : new Set(targetBytes);
+    const hits = [];
+    for (let offset = 0; offset < memory.length; offset++) {
+        const value = memory[offset];
+        if (!targets.has(value)) continue;
+        hits.push({
+            address: memoryStart + offset,
+            value,
+        });
+    }
+    return hits;
+}
+
+function dynamicSlotInfoForAddress(address) {
+    if (!Number.isFinite(address) || address < KNIGHT_LORE_DYNAMIC_ROOM_START) return null;
+
+    const offset = address - KNIGHT_LORE_DYNAMIC_ROOM_START;
+    const slotIndex = Math.floor(offset / KNIGHT_LORE_DYNAMIC_VISUAL_SLOT_SIZE);
+    const slotOffset = offset % KNIGHT_LORE_DYNAMIC_VISUAL_SLOT_SIZE;
+    return {
+        slotIndex,
+        slotOffset,
+        isSpriteByte: slotOffset === 0,
+    };
+}
+
+function formatDynamicSlotLocation(address) {
+    const slotInfo = dynamicSlotInfoForAddress(address);
+    if (slotInfo) {
+        return 'slot '
+            + slotInfo.slotIndex
+            + ' +'
+            + formatHex(slotInfo.slotOffset, 2)
+            + (slotInfo.isSpriteByte ? ' sprite' : '');
+    }
+
+    return 'working +'
+        + formatHex(address - KNIGHT_LORE_SCRATCH_START, 4);
+}
+
+function findByteWindowChanges(previous, current, windowStart) {
+    if (!previous || previous.windowStart !== windowStart || !Array.isArray(previous.bytes)) return null;
+
+    const changes = [];
+    const length = Math.max(previous.bytes.length, current.length);
+    for (let offset = 0; offset < length; offset++) {
+        const before = offset < previous.bytes.length ? previous.bytes[offset] : null;
+        const after = offset < current.length ? current[offset] : null;
+        if (before === after) continue;
+        changes.push({
+            address: windowStart + offset,
+            before,
+            after,
+        });
+    }
+    return changes;
+}
+
+function formatByteChangeSummary(changes) {
+    if (changes === null) return 'new';
+    if (!changes || changes.length === 0) return 'no';
+    return 'changed ' + changes.length;
+}
+
+function formatByteChangeDetails(changes, maxChanges = 8) {
+    if (changes === null) return 'new';
+    if (!changes || changes.length === 0) return 'no';
+
+    const visibleChanges = changes.slice(0, maxChanges).map(change => (
+        formatRecordAddress(change.address)
+            + ':'
+            + formatHex(change.before, 2)
+            + '>'
+            + formatHex(change.after, 2)
+    ));
+    const overflow = changes.length > maxChanges
+        ? ' +' + (changes.length - maxChanges)
+        : '';
+    return visibleChanges.join(' ') + overflow;
+}
+
+function formatSpellProbeChanges(row) {
+    if (!row || row.changes === null) return 'new';
+    if (!row.changes || row.changes.length === 0) return 'no';
+
+    const maxChanges = 6;
+    const visibleChanges = row.changes.slice(0, maxChanges).map(change => (
+        formatRecordAddress(change.address)
+            + ':'
+            + formatHex(change.before, 2)
+            + '>'
+            + formatHex(change.after, 2)
+    ));
+    const overflow = row.changes.length > maxChanges
+        ? ' +' + (row.changes.length - maxChanges)
+        : '';
+    return visibleChanges.join(' ') + overflow;
+}
+
+function formatSpellProbeChangeSummary(row) {
+    if (!row || row.changes === null) return 'new';
+    if (!row.changes || row.changes.length === 0) return 'no';
+    return 'changed ' + row.changes.length;
+}
+
+function isDynamicObjectCandidate(record, backgroundPrefixCount) {
+    return Boolean(
+        record
+        && Number.isFinite(record.slotIndex)
+        && record.slotIndex >= backgroundPrefixCount
+    );
+}
+
+function dynamicObjectCandidatesForRoom(room) {
+    if (!room) return [];
+    const comparison = room.backgroundComparison || null;
+    const backgroundPrefixCount = comparison && Number.isFinite(comparison.staticRecordCount)
+        ? comparison.staticRecordCount
+        : 0;
+    const dynamicRecords = room.dynamicVisualRecords || room.sprites || [];
+    return dynamicRecords.filter(record => (
+        isDynamicObjectCandidate(record, backgroundPrefixCount)
+    ));
+}
+
+function findDynamicObjectIdHits(record) {
+    if (!record || !Array.isArray(record.slotRaw)) return [];
+    const hits = [];
+    for (let offset = DYNAMIC_OBJECT_ID_SCAN_START; offset < record.slotRaw.length; offset++) {
+        const value = record.slotRaw[offset];
+        const definition = SPECIAL_DYNAMIC_OBJECTS_BY_OBJECT_ID[value];
+        if (!definition) continue;
+        hits.push({
+            offset,
+            address: Number.isFinite(record.address) ? record.address + offset : null,
+            objectId: value,
+            ...definition,
+        });
+    }
+    return hits;
+}
+
+function formatDynamicObjectIdHits(hits) {
+    if (!hits || hits.length === 0) return '--';
+    return hits.map(hit => (
+        '+' + formatHex(hit.offset, 2)
+        + '='
+        + formatHex(hit.objectId, 2)
+        + '@'
+        + formatRecordAddress(hit.address)
+    )).join(' ');
+}
+
+function specialMarkerForCategory(category) {
+    return SPECIAL_DYNAMIC_MARKERS[category] || null;
+}
+
+function specialMarkerCategoryForBackgroundId(backgroundId) {
+    switch (backgroundId) {
+        default:
+            return null;
+    }
+}
+
+function classifyDynamicObjectRecord(record) {
+    if (!record) {
+        return {
+            label: 'unknown',
+            category: 'unknown',
+            source: 'no dynamic record',
+            objectIdHits: [],
+        };
+    }
+    const objectIdHits = findDynamicObjectIdHits(record);
+    if (objectIdHits.length > 0) {
+        const labels = [...new Set(objectIdHits.map(hit => hit.label))];
+        const categories = objectIdHits.map(hit => hit.category);
+        const category = categories.includes('wizard')
+                ? 'wizard'
+                : categories[0];
+        return {
+            label: labels.join(' / '),
+            category,
+            source: objectIdHits
+                .map(hit => hit.source + ' at +' + formatHex(hit.offset, 2))
+                .join('; '),
+            objectIdHits,
+        };
+    }
+
+    return {
+        label: 'dynamic visual object',
+        category: 'object',
+        source: 'working-memory visual slot',
+        objectIdHits,
+    };
+}
+
+function specialDynamicMarkersForRoom(room) {
+    if (!room) return [];
+
+    const markers = [];
+    const dynamicRecords = room.dynamicVisualRecords || room.sprites || [];
+    const dynamicRecordByAddress = new Map();
+    dynamicRecords.forEach(record => {
+        if (Number.isFinite(record.address)) dynamicRecordByAddress.set(record.address, record);
+    });
+    const usedKeys = new Set();
+    const addMarker = (record, marker) => {
+        if (!record || !marker || !marker.category) return;
+        const key = [
+            marker.category,
+            Number.isFinite(record.address) ? record.address : markers.length,
+            marker.source || '',
+        ].join(':');
+        if (usedKeys.has(key)) return;
+        usedKeys.add(key);
+        markers.push({
+            ...marker,
+            record,
+            markerInfo: specialMarkerForCategory(marker.category),
+        });
+    };
+
+    const rows = room.backgroundComparison && Array.isArray(room.backgroundComparison.rows)
+        ? room.backgroundComparison.rows
+        : [];
+
+    const wizardRows = WIZARD_DYNAMIC_ROWS_BY_ROOM[room.id] || [];
+    wizardRows.forEach((rowIndex, partIndex) => {
+        const row = rows.find(candidate => candidate.index === rowIndex);
+        if (!row || !row.dynamicRecord) return;
+
+        const liveRecord = dynamicRecordByAddress.get(row.dynamicRecord.address) || row.dynamicRecord;
+        addMarker(liveRecord, {
+            category: 'wizard',
+            label: 'wizard part ' + partIndex,
+            source: 'room 0x88 live dynamic row ' + rowIndex
+                + ' observed as wizard movement; static label was '
+                + formatStaticSource(row.staticSource),
+        });
+    });
+
+    rows.forEach(row => {
+        const backgroundId = row.staticSource ? row.staticSource.backgroundId : null;
+        const category = specialMarkerCategoryForBackgroundId(backgroundId);
+        if (!category || !row.dynamicRecord) return;
+
+        const liveRecord = dynamicRecordByAddress.get(row.dynamicRecord.address) || row.dynamicRecord;
+        addMarker(liveRecord, {
+            category,
+            label: specialMarkerForCategory(category).label,
+            source: 'dynamic visual slot matched to static background ' + formatHex(backgroundId, 2),
+        });
+    });
+
+    return markers;
 }
 
 function summarizeBackgroundComparison(comparison) {
@@ -266,6 +702,18 @@ function mapKnightLorePositionToScene(position, roomDimensions) {
     };
 }
 
+function mapKnightLoreHighResolutionPositionToScene(position) {
+    if (!isFinitePosition(position)) return null;
+    return {
+        source: 'forced high-res bytes',
+        vector: new THREE.Vector3(
+            (position.x - 128) / 2,
+            Math.max(0, (position.z - 128) / 2),
+            (128 - position.y) / 2
+        ),
+    };
+}
+
 function distanceXZ(a, b) {
     const dx = a.x - b.x;
     const dz = a.z - b.z;
@@ -324,6 +772,15 @@ function backgroundDebugColor(background) {
     return BACKGROUND_DEBUG_COLORS[background.category] || BACKGROUND_DEBUG_COLORS['unknown-background'];
 }
 
+function fixedBackgroundMarker(background) {
+    return FIXED_BACKGROUND_MARKERS[background.id] || {
+        label: background.label || 'fixed background',
+        color: backgroundDebugColor(background),
+        opacity: 0.72,
+        fallbackSize: {width: 9, height: 12, depth: 9},
+    };
+}
+
 function formatPlayerSprites(orientation) {
     if (!orientation) return '--';
     return 'head ' + formatHex(orientation.headSprite, 2)
@@ -362,6 +819,19 @@ export class KnightLoreStage0Renderer {
         this.lastPointerAxisFacing = null;
         this.hasSeenGameplayRoom = false;
         this.playerProxyInfo = null;
+        this.lastRoomColorAttribute = null;
+        this.roomColourProbeRoomId = null;
+        this.previousRoomColourProbe = null;
+        this.lastRoomColourProbe = null;
+        this.lastRoomColourProbeChange = null;
+        this.lastSpecialDynamicMarkers = [];
+        this.lastResolvedCollectableItemRecords = [];
+        this.spellProbeRoomId = null;
+        this.lastSpellProbeRows = [];
+        this.lastSpellProbeTotalHits = 0;
+        this.lastSpellProbeChangedHits = 0;
+        this.lastSpellProbeValueCounts = new Map();
+        this.previousSpellProbeWindows = new Map();
         this.roomDimensions = {...DEFAULT_ROOM_DIMENSIONS};
         this.activeViewPreset = 'game';
         this.activeRenderMode = 'schematic';
@@ -486,6 +956,61 @@ export class KnightLoreStage0Renderer {
         this.staticBackgroundGroup = new THREE.Group();
         this.scene.add(this.staticBackgroundGroup);
 
+        this.specialDynamicGroup = new THREE.Group();
+        this.scene.add(this.specialDynamicGroup);
+
+        this.objectWireframeGroup = new THREE.Group();
+        this.objectWireframeMaterial = new THREE.LineBasicMaterial({
+            color: 0xf8fafc,
+            transparent: true,
+            opacity: 0.92,
+        });
+        this.specialObjectWireframeMaterials = new Map();
+        this.scene.add(this.objectWireframeGroup);
+
+        this.collectableItemGroup = new THREE.Group();
+        this.collectableItemGeometry = new THREE.BoxGeometry(
+            ITEM_MARKER_SIZE,
+            ITEM_MARKER_SIZE,
+            ITEM_MARKER_SIZE
+        );
+        this.collectableItemMaterials = ITEM_MARKER_COLORS.map(color => (
+            new THREE.MeshBasicMaterial({
+                color,
+                transparent: true,
+                opacity: 0.86,
+            })
+        ));
+        this.collectableItemFallbackMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.86,
+        });
+        this.scene.add(this.collectableItemGroup);
+
+        this.spellMarkerGroup = new THREE.Group();
+        this.spellMarkerGroup.visible = false;
+        this.spellMarkerGeometry = new THREE.SphereGeometry(SPELL_MARKER_SIZE / 2, 12, 8);
+        this.spellCycleMaterial = new THREE.MeshBasicMaterial({
+            color: 0xfacc15,
+            transparent: true,
+            opacity: 0.92,
+        });
+        this.spellAttackMaterial = new THREE.MeshBasicMaterial({
+            color: 0xef4444,
+            transparent: true,
+            opacity: 0.94,
+        });
+        this.spellItemDisplayMaterial = new THREE.MeshBasicMaterial({
+            color: 0xf97316,
+            transparent: true,
+            opacity: 0.92,
+        });
+        this.spellMarkerMesh = new THREE.Mesh(this.spellMarkerGeometry, this.spellCycleMaterial);
+        this.spellMarkerMesh.visible = false;
+        this.spellMarkerGroup.add(this.spellMarkerMesh);
+        this.scene.add(this.spellMarkerGroup);
+
         this.playerGroup = new THREE.Group();
         this.playerGroup.visible = false;
         this.playerHumanMaterial = new THREE.MeshBasicMaterial({color: 0xf97316});
@@ -541,7 +1066,11 @@ export class KnightLoreStage0Renderer {
         this.frameCounter += 1;
         this.updateRoomShape();
         this.updateStaticBackgroundGeometry();
+        this.updateSpecialDynamicMarkers();
+        this.updateObjectWireframes();
+        this.updateCollectableItemMarkers();
         this.updatePlayerProxy();
+        this.updateSpellMovementProbe();
         this.updateSummary();
         this.updateComparisonDiagnostics();
         this.render();
@@ -568,25 +1097,25 @@ export class KnightLoreStage0Renderer {
         this.setRoomGeometryVisible(showRoomGeometry);
         if (!showRoomGeometry) {
             this.clearStaticBackgroundGeometry();
+            this.clearSpecialDynamicMarkers();
+            this.clearObjectWireframes();
+            this.clearCollectableItemMarkers();
             this.lastStaticBackgroundSignature = '';
             this.lastRoomSignature = '';
+            this.lastRoomColorAttribute = null;
             this.playerGroup.visible = false;
             this.updateDirectionOverlayLabels();
             return;
         }
+        this.updateRoomColor(room);
         const signature = room
-            ? [room.id, room.colourAttribute, room.size.x, room.size.y, room.size.z].join(':')
+            ? [room.id, room.size.x, room.size.y, room.size.z].join(':')
             : '';
         if (signature === this.lastRoomSignature) return;
         this.lastRoomSignature = signature;
 
         const dimensions = roomDimensionsFromRoom(room);
         this.roomDimensions = dimensions;
-        const color = roomColorFromAttribute(room ? room.colourAttribute : null);
-        this.floorMaterial.color.setHex(color);
-        this.wallMaterial.color.setHex(color);
-        this.viewerWallMaterial.color.setHex(color);
-        this.roomEdges.material.color.setHex(color);
 
         this.floorMesh.scale.set(dimensions.width, dimensions.depth, 1);
         this.floorMesh.position.set(0, 0, 0);
@@ -624,12 +1153,28 @@ export class KnightLoreStage0Renderer {
         this.updateWallVisibility();
     }
 
+    updateRoomColor(room) {
+        const colourAttribute = room ? room.colourAttribute : null;
+        if (colourAttribute === this.lastRoomColorAttribute) return;
+        this.lastRoomColorAttribute = colourAttribute;
+
+        const color = roomColorFromAttribute(colourAttribute);
+        this.floorMaterial.color.setHex(color);
+        this.wallMaterial.color.setHex(color);
+        this.viewerWallMaterial.color.setHex(color);
+        this.roomEdges.material.color.setHex(color);
+    }
+
     setRoomGeometryVisible(visible) {
         if (this.gridHelper) this.gridHelper.visible = visible;
         if (this.axesHelper) this.axesHelper.visible = visible;
         if (this.floorMesh) this.floorMesh.visible = visible;
         if (this.roomEdges) this.roomEdges.visible = visible;
         if (this.staticBackgroundGroup) this.staticBackgroundGroup.visible = visible;
+        if (this.specialDynamicGroup) this.specialDynamicGroup.visible = visible;
+        if (this.objectWireframeGroup) this.objectWireframeGroup.visible = visible;
+        if (this.collectableItemGroup) this.collectableItemGroup.visible = visible;
+        if (this.spellMarkerGroup) this.spellMarkerGroup.visible = visible && this.spellMarkerMesh.visible;
         if (this.directionOverlayElement) {
             this.directionOverlayElement.hidden = !visible;
         }
@@ -679,6 +1224,405 @@ export class KnightLoreStage0Renderer {
                 }
             });
         }
+    }
+
+    clearSpecialDynamicMarkers() {
+        while (this.specialDynamicGroup.children.length > 0) {
+            const child = this.specialDynamicGroup.children[0];
+            this.specialDynamicGroup.remove(child);
+            child.traverse(object => {
+                if (object.geometry) object.geometry.dispose();
+                if (object.material) {
+                    const materials = Array.isArray(object.material)
+                        ? object.material
+                        : [object.material];
+                    materials.forEach(material => material.dispose());
+                }
+            });
+        }
+    }
+
+    clearObjectWireframes() {
+        while (this.objectWireframeGroup.children.length > 0) {
+            const child = this.objectWireframeGroup.children[0];
+            this.objectWireframeGroup.remove(child);
+            if (child.geometry) child.geometry.dispose();
+        }
+    }
+
+    clearCollectableItemMarkers() {
+        while (this.collectableItemGroup.children.length > 0) {
+            this.collectableItemGroup.remove(this.collectableItemGroup.children[0]);
+        }
+    }
+
+    updateSpecialDynamicMarkers() {
+        const scene = this.latestFrame && this.latestFrame.knightLoreScene
+            ? this.latestFrame.knightLoreScene
+            : null;
+        const room = scene ? scene.room : null;
+        if (!room || !this.hasSeenGameplayRoom) {
+            this.lastSpecialDynamicMarkers = [];
+            this.clearSpecialDynamicMarkers();
+            return;
+        }
+
+        const markers = specialDynamicMarkersForRoom(room);
+        this.lastSpecialDynamicMarkers = markers;
+        this.clearSpecialDynamicMarkers();
+
+        markers.filter(marker => marker.render !== false).forEach(marker => {
+            this.addSpecialDynamicMarker(marker);
+        });
+    }
+
+    addSpecialDynamicMarker(marker) {
+        const record = marker.record;
+        const markerInfo = marker.markerInfo || specialMarkerForCategory(marker.category);
+        if (!record || !markerInfo) return;
+
+        const position = mapKnightLorePositionToScene(record.position, this.roomDimensions);
+        if (!position) return;
+
+        const fallbackSize = markerInfo.fallbackSize;
+        const dimensions = record.dimensions || {};
+        const width = Math.max(3, (dimensions.x || dimensions.width || fallbackSize.width) / 2);
+        const depth = Math.max(3, (dimensions.y || dimensions.depth || fallbackSize.depth) / 2);
+        const height = Math.max(3, (dimensions.z || dimensions.height || fallbackSize.height) / 2);
+        const mesh = this.createDebugBox(width, height, depth, markerInfo.color, markerInfo.opacity);
+        mesh.position.copy(position.vector);
+        mesh.position.y += height / 2;
+        mesh.userData.dynamicAddress = record.address;
+        mesh.userData.spriteId = record.spriteId;
+        mesh.userData.objectCategory = marker.category;
+        mesh.userData.objectLabel = marker.label || markerInfo.label;
+        this.specialDynamicGroup.add(mesh);
+    }
+
+    updateObjectWireframes() {
+        const scene = this.latestFrame && this.latestFrame.knightLoreScene
+            ? this.latestFrame.knightLoreScene
+            : null;
+        const room = scene ? scene.room : null;
+        if (!room || !this.hasSeenGameplayRoom) {
+            this.clearObjectWireframes();
+            return;
+        }
+
+        const candidates = dynamicObjectCandidatesForRoom(room)
+            .slice(0, OBJECT_WIREFRAME_MAX_RECORDS);
+        this.clearObjectWireframes();
+
+        candidates.forEach(record => {
+            const position = mapKnightLorePositionToScene(record.position, this.roomDimensions);
+            if (!position) return;
+
+            const semantic = classifyDynamicObjectRecord(record);
+            const width = Math.max(1, (record.dimensions.x || record.dimensions.width || 1) / 2);
+            const depth = Math.max(1, (record.dimensions.y || record.dimensions.depth || 1) / 2);
+            const height = Math.max(1, (record.dimensions.z || record.dimensions.height || 1) / 2);
+            const mesh = new THREE.LineSegments(
+                new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)),
+                this.materialForDynamicObjectSemantic(semantic)
+            );
+            mesh.scale.set(width, height, depth);
+            mesh.position.copy(position.vector);
+            mesh.position.y += height / 2;
+            mesh.userData.dynamicSlot = record.slotIndex;
+            mesh.userData.spriteId = record.spriteId;
+            mesh.userData.objectCategory = semantic.category;
+            mesh.userData.objectLabel = semantic.label;
+            this.objectWireframeGroup.add(mesh);
+        });
+    }
+
+    materialForDynamicObjectSemantic(semantic) {
+        const color = semantic && SPECIAL_OBJECT_WIREFRAME_COLORS[semantic.category];
+        if (!color) return this.objectWireframeMaterial;
+        if (!this.specialObjectWireframeMaterials.has(semantic.category)) {
+            this.specialObjectWireframeMaterials.set(
+                semantic.category,
+                new THREE.LineBasicMaterial({
+                    color,
+                    transparent: true,
+                    opacity: 0.96,
+                })
+            );
+        }
+        return this.specialObjectWireframeMaterials.get(semantic.category);
+    }
+
+    updateCollectableItemMarkers() {
+        const scene = this.latestFrame && this.latestFrame.knightLoreScene
+            ? this.latestFrame.knightLoreScene
+            : null;
+        const room = scene ? scene.room : null;
+        if (!room || !this.hasSeenGameplayRoom) {
+            this.clearCollectableItemMarkers();
+            return;
+        }
+
+        const itemRecords = room.collectableItems && room.collectableItems.currentRoomRecords
+            ? room.collectableItems.currentRoomRecords
+            : [];
+        this.lastResolvedCollectableItemRecords = itemRecords;
+        this.clearCollectableItemMarkers();
+
+        itemRecords.forEach(item => {
+            const position = mapKnightLoreHighResolutionPositionToScene(item.livePosition || item.currentPosition);
+            if (!position) return;
+            const itemSpriteId = item.spriteId !== null && item.spriteId !== undefined
+                ? item.spriteId
+                : (item.graphicId || 0);
+            const material = this.collectableItemMaterials[itemSpriteId % this.collectableItemMaterials.length]
+                || this.collectableItemFallbackMaterial;
+            const marker = new THREE.Mesh(this.collectableItemGeometry, material);
+            marker.position.copy(position.vector);
+            marker.position.y += ITEM_MARKER_SIZE / 2;
+            marker.userData.itemIndex = item.index;
+            marker.userData.graphicId = itemSpriteId;
+            this.collectableItemGroup.add(marker);
+        });
+    }
+
+    resetSpellMovementProbe(roomId = null) {
+        this.spellProbeRoomId = roomId;
+        this.lastSpellProbeRows = [];
+        this.lastSpellProbeTotalHits = 0;
+        this.lastSpellProbeChangedHits = 0;
+        this.lastSpellProbeValueCounts = new Map(SPELL_OBSERVED_VALUES.map(value => [value, 0]));
+        this.previousSpellProbeWindows = new Map();
+        this.updateSpellMarkerFromProbeRow(null);
+    }
+
+    updateSpellMarkerFromProbeRow(row) {
+        if (!this.spellMarkerGroup || !this.spellMarkerMesh) return;
+
+        if (!row || !row.observedThisFrame || !isFinitePosition(row.candidatePosition)) {
+            this.spellMarkerMesh.visible = false;
+            this.spellMarkerGroup.visible = false;
+            return;
+        }
+
+        const position = mapKnightLoreHighResolutionPositionToScene(row.candidatePosition);
+        if (!position) {
+            this.spellMarkerMesh.visible = false;
+            this.spellMarkerGroup.visible = false;
+            return;
+        }
+
+        this.spellMarkerMesh.material = row.observedKind === 'wolf attack'
+            ? this.spellAttackMaterial
+            : (
+                row.observedKind === 'item display?'
+                    ? this.spellItemDisplayMaterial
+                    : this.spellCycleMaterial
+            );
+        this.spellMarkerMesh.position.copy(position.vector);
+        this.spellMarkerMesh.position.y += SPELL_MARKER_SIZE / 2;
+        this.spellMarkerMesh.userData.spellProbeAddress = row.address;
+        this.spellMarkerMesh.userData.spellProbeValue = row.observedValue;
+        this.spellMarkerMesh.userData.spellProbeKind = row.observedKind;
+        this.spellMarkerMesh.visible = true;
+        this.spellMarkerGroup.visible = this.hasSeenGameplayRoom;
+    }
+
+    updateSpellMovementProbe() {
+        const frame = this.latestFrame;
+        const scene = frame && frame.knightLoreScene ? frame.knightLoreScene : null;
+        const room = scene ? scene.room : null;
+        const roomId = room && room.id !== null && room.id !== undefined ? room.id : null;
+        const memoryStart = frame && Number.isFinite(frame.memoryStart) ? frame.memoryStart : null;
+        const memoryEnd = frame && Number.isFinite(frame.memoryEnd) ? frame.memoryEnd : null;
+        const hasProbeRoom = this.hasSeenGameplayRoom && roomId !== null;
+
+        if (!frame || !frame.semanticMemory || memoryStart === null || memoryEnd === null || !hasProbeRoom) {
+            this.resetSpellMovementProbe(null);
+            return;
+        }
+
+        if (this.spellProbeRoomId !== roomId) {
+            this.resetSpellMovementProbe(roomId);
+        }
+
+        const currentValue = readFrameMemoryByte(frame, SPELL_PROBE_ADDRESS);
+        const isObservedValue = SPELL_OBSERVED_VALUE_SET.has(currentValue);
+        const valueCounts = new Map(SPELL_OBSERVED_VALUES.map(value => [value, 0]));
+        if (isObservedValue) {
+            valueCounts.set(currentValue, 1);
+        }
+
+        const windowStart = Math.max(memoryStart, SPELL_PROBE_ADDRESS - SPELL_PROBE_WINDOW_BEFORE);
+        const windowEnd = Math.min(memoryEnd, SPELL_PROBE_ADDRESS + SPELL_PROBE_WINDOW_AFTER + 1);
+        const windowBytes = readFrameMemoryWindow(frame, windowStart, windowEnd - windowStart);
+        const previous = this.previousSpellProbeWindows.get(SPELL_PROBE_ADDRESS) || null;
+        const changes = findByteWindowChanges(previous, windowBytes, windowStart);
+        const slotInfo = dynamicSlotInfoForAddress(SPELL_PROBE_ADDRESS);
+        const row = {
+            address: SPELL_PROBE_ADDRESS,
+            observedThisFrame: isObservedValue,
+            observedValue: currentValue,
+            observedKind: classifySpellProbeValue(currentValue),
+            windowStart,
+            windowBytes,
+            changes,
+            changeCount: changes ? changes.length : 0,
+            slotInfo,
+            candidatePosition: {
+                x: readFrameMemoryByte(frame, SPELL_PROBE_ADDRESS + 1),
+                y: readFrameMemoryByte(frame, SPELL_PROBE_ADDRESS + 2),
+                z: readFrameMemoryByte(frame, SPELL_PROBE_ADDRESS + 3),
+            },
+            candidateDimensions: {
+                x: readFrameMemoryByte(frame, SPELL_PROBE_ADDRESS + 4),
+                y: readFrameMemoryByte(frame, SPELL_PROBE_ADDRESS + 5),
+                z: readFrameMemoryByte(frame, SPELL_PROBE_ADDRESS + 6),
+            },
+            candidateRoomId: readFrameMemoryByte(frame, SPELL_PROBE_ADDRESS + 8),
+        };
+
+        this.previousSpellProbeWindows.set(SPELL_PROBE_ADDRESS, {
+            windowStart,
+            bytes: windowBytes,
+        });
+
+        const rows = [row];
+
+        this.lastSpellProbeTotalHits = isObservedValue ? 1 : 0;
+        this.lastSpellProbeChangedHits = rows.filter(row => row.changes && row.changes.length > 0).length;
+        this.lastSpellProbeValueCounts = valueCounts;
+        this.lastSpellProbeRows = rows;
+        this.updateSpellMarkerFromProbeRow(row);
+    }
+
+    resetRoomColourProbe(roomId = null) {
+        this.roomColourProbeRoomId = roomId;
+        this.previousRoomColourProbe = null;
+        this.lastRoomColourProbe = null;
+        this.lastRoomColourProbeChange = null;
+    }
+
+    updateRoomColourProbe() {
+        const frame = this.latestFrame;
+        const scene = frame && frame.knightLoreScene ? frame.knightLoreScene : null;
+        const room = scene ? scene.room : null;
+        const roomId = room && room.id !== null && room.id !== undefined ? room.id : null;
+        const memoryStart = frame && Number.isFinite(frame.memoryStart) ? frame.memoryStart : null;
+        const memoryEnd = frame && Number.isFinite(frame.memoryEnd) ? frame.memoryEnd : null;
+
+        if (!frame || !frame.semanticMemory || memoryStart === null || memoryEnd === null || roomId === null) {
+            this.resetRoomColourProbe(null);
+            return;
+        }
+
+        if (this.roomColourProbeRoomId !== roomId) {
+            this.resetRoomColourProbe(roomId);
+        }
+
+        const workingWindowStart = Math.max(
+            memoryStart,
+            ROOM_COLOUR_REFERENCE_ADDRESS - ROOM_COLOUR_WORKING_WINDOW_BEFORE
+        );
+        const workingWindowEnd = Math.min(
+            memoryEnd,
+            ROOM_COLOUR_REFERENCE_ADDRESS + ROOM_COLOUR_WORKING_WINDOW_AFTER + 1
+        );
+        const workingWindowBytes = readFrameMemoryWindow(
+            frame,
+            workingWindowStart,
+            workingWindowEnd - workingWindowStart
+        );
+        const previous = this.previousRoomColourProbe;
+        const workingChanges = findByteWindowChanges(
+            previous ? previous.workingWindow : null,
+            workingWindowBytes,
+            workingWindowStart
+        );
+        const workingCandidateAddresses = findByteAddresses(
+            workingWindowBytes,
+            workingWindowStart,
+            ROOM_COLOUR_CANDIDATE_VALUE
+        );
+
+        const attributeBytes = frame.attributeMemory || null;
+        const attributeStart = frame && Number.isFinite(frame.attributeMemoryStart)
+            ? frame.attributeMemoryStart
+            : ROOM_COLOUR_ATTRIBUTE_MEMORY_START;
+        const attributeEnd = frame && Number.isFinite(frame.attributeMemoryEnd)
+            ? frame.attributeMemoryEnd
+            : ROOM_COLOUR_ATTRIBUTE_MEMORY_END;
+        const attributeCounts = countByteValues(attributeBytes);
+        const attributeCandidateCount = attributeCounts.get(ROOM_COLOUR_CANDIDATE_VALUE) || 0;
+        const attributeCandidateAddresses = findByteAddresses(
+            attributeBytes,
+            attributeStart,
+            ROOM_COLOUR_CANDIDATE_VALUE
+        );
+        const attributeChanges = attributeBytes
+            ? findByteWindowChanges(
+                previous && previous.attributeBytes
+                    ? {windowStart: previous.attributeStart, bytes: previous.attributeBytes}
+                    : null,
+                attributeBytes,
+                attributeStart
+            )
+            : null;
+        const attributeCandidateChangeCount = attributeChanges
+            ? attributeChanges.filter(change => change.after === ROOM_COLOUR_CANDIDATE_VALUE).length
+            : 0;
+        const workingChangeCount = workingChanges ? workingChanges.length : 0;
+        const attributeChangeCount = attributeChanges ? attributeChanges.length : 0;
+
+        if (workingChangeCount > 0 || attributeChangeCount > 0) {
+            this.lastRoomColourProbeChange = {
+                frameCounter: this.frameCounter,
+                semanticFrameCounter: frame.semanticFrameCounter || null,
+                workingChangeCount,
+                attributeChangeCount,
+                attributeCandidateChangeCount,
+            };
+        }
+
+        const framesSinceChange = this.lastRoomColourProbeChange
+            ? this.frameCounter - this.lastRoomColourProbeChange.frameCounter
+            : null;
+        const recentChange = framesSinceChange !== null && framesSinceChange <= ROOM_COLOUR_CHANGE_HOLD_FRAMES
+            ? this.lastRoomColourProbeChange
+            : null;
+
+        this.lastRoomColourProbe = {
+            roomId,
+            documentedAddress: ROOM_COLOUR_REFERENCE_ADDRESS,
+            documentedValue: readFrameMemoryByte(frame, ROOM_COLOUR_REFERENCE_ADDRESS),
+            candidateValue: ROOM_COLOUR_CANDIDATE_VALUE,
+            rendererColor: roomColorFromAttribute(room ? room.colourAttribute : null),
+            workingWindowStart,
+            workingWindowBytes,
+            workingChanges,
+            workingCandidateAddresses,
+            attributeStart,
+            attributeEnd,
+            attributeCaptured: Boolean(attributeBytes),
+            attributeTotalBytes: attributeBytes ? attributeBytes.length : 0,
+            attributeCandidateCount,
+            attributeCandidateAddresses,
+            attributeTopCounts: formatTopByteCounts(attributeCounts),
+            attributeChanges,
+            attributeChangeCount,
+            attributeCandidateChangeCount,
+            recentChange,
+            framesSinceChange,
+        };
+
+        this.previousRoomColourProbe = {
+            roomId,
+            workingWindow: {
+                windowStart: workingWindowStart,
+                bytes: Array.from(workingWindowBytes),
+            },
+            attributeStart,
+            attributeBytes: attributeBytes ? Array.from(attributeBytes) : null,
+        };
     }
 
     createDebugBox(width, height, depth, color, opacity) {
@@ -810,15 +1754,56 @@ export class KnightLoreStage0Renderer {
     }
 
     addFixedBackgroundMarker(background, index) {
-        const color = backgroundDebugColor(background);
+        const markerInfo = fixedBackgroundMarker(background);
         const group = new THREE.Group();
-        const marker = this.createDebugBox(9, 12, 9, color, 0.82);
-        marker.position.set(
-            (index % 3 - 1) * 11,
-            6,
-            (Math.floor(index / 3) % 3 - 1) * 11
-        );
-        group.add(marker);
+        const records = Array.isArray(background.records) ? background.records : [];
+        const fallbackSize = markerInfo.fallbackSize;
+        const forceRoomCenter = background.id === 0x13;
+
+        records.forEach((record, recordIndex) => {
+            const position = forceRoomCenter
+                ? {vector: new THREE.Vector3(0, 0, 0)}
+                : mapKnightLorePositionToScene(record.position, this.roomDimensions);
+            if (!position) return;
+
+            const width = Math.max(3, (record.dimensions.x || record.dimensions.width || fallbackSize.width) / 2);
+            const depth = Math.max(3, (record.dimensions.y || record.dimensions.depth || fallbackSize.depth) / 2);
+            const height = Math.max(3, (record.dimensions.z || record.dimensions.height || fallbackSize.height) / 2);
+            const recordMesh = this.createDebugBox(width, height, depth, markerInfo.color, markerInfo.opacity);
+            recordMesh.position.copy(position.vector);
+            recordMesh.position.y += height / 2;
+            recordMesh.userData.backgroundId = background.id;
+            recordMesh.userData.backgroundLabel = markerInfo.label;
+            recordMesh.userData.backgroundRecordIndex = recordIndex;
+            if (forceRoomCenter) {
+                recordMesh.userData.cauldronPlacement = 'room-center';
+            }
+            group.add(recordMesh);
+        });
+
+        if (group.children.length === 0) {
+            const fallbackMarker = this.createDebugBox(
+                fallbackSize.width,
+                fallbackSize.height,
+                fallbackSize.depth,
+                markerInfo.color,
+                markerInfo.opacity
+            );
+            fallbackMarker.position.set(
+                forceRoomCenter ? 0 : (index % 3 - 1) * 11,
+                fallbackSize.height / 2,
+                forceRoomCenter ? 0 : (Math.floor(index / 3) % 3 - 1) * 11
+            );
+            fallbackMarker.userData.backgroundId = background.id;
+            fallbackMarker.userData.backgroundLabel = markerInfo.label;
+            if (forceRoomCenter) {
+                fallbackMarker.userData.cauldronPlacement = 'room-center';
+            }
+            group.add(fallbackMarker);
+        }
+
+        group.userData.backgroundId = background.id;
+        group.userData.backgroundLabel = markerInfo.label;
         this.staticBackgroundGroup.add(group);
     }
 
@@ -841,7 +1826,9 @@ export class KnightLoreStage0Renderer {
                 this.addSidePatch(background, index);
                 break;
             case 'fixed-background':
-                this.addFixedBackgroundMarker(background, index);
+                if (!LIVE_FIXED_BACKGROUND_IDS.has(background.id)) {
+                    this.addFixedBackgroundMarker(background, index);
+                }
                 break;
             default:
                 this.addSidePatch(background, index);
@@ -1069,9 +2056,25 @@ export class KnightLoreStage0Renderer {
         const room = scene ? scene.room : null;
         const comparison = room ? room.backgroundComparison : null;
         const staticLocation = room ? room.staticLocation : null;
+        const backgroundPrefixCount = comparison && Number.isFinite(comparison.staticRecordCount)
+            ? comparison.staticRecordCount
+            : 0;
+        const objectCandidates = dynamicObjectCandidatesForRoom(room);
+        const objectTable = this.renderDynamicObjectCandidateTable(objectCandidates, backgroundPrefixCount);
+        const collectableItems = room && room.collectableItems ? room.collectableItems : null;
+        const resolvedItemRecords = room ? this.lastResolvedCollectableItemRecords : [];
+        const itemTable = this.renderCollectableItemTable(
+            collectableItems,
+            room ? room.id : null,
+            resolvedItemRecords
+        );
 
         if (!comparison || !staticLocation || staticLocation.error) {
-            this.comparisonElement.textContent = 'Background comparison unavailable.';
+            this.comparisonElement.innerHTML = [
+                '<p class="knight-lore-stage2-note is-warning">Background comparison unavailable.</p>',
+                objectTable,
+                itemTable,
+            ].join('');
             return;
         }
 
@@ -1125,6 +2128,517 @@ export class KnightLoreStage0Renderer {
             )).join(''),
             '</tbody>',
             '</table>',
+            objectTable,
+            itemTable,
+        ].join('');
+    }
+
+    renderRoomColourProbeTable(room) {
+        const probe = this.lastRoomColourProbe;
+        const roomLabel = room && room.id !== null && room.id !== undefined
+            ? formatHex(room.id, 2)
+            : '--';
+
+        if (!probe) {
+            return [
+                '<div class="knight-lore-stage2-comparison-heading is-secondary">',
+                '<strong>Room colour 0x45 probe</strong>',
+                '<span>room ' + escapeHtml(roomLabel) + '</span>',
+                '</div>',
+                '<p class="knight-lore-stage2-note is-warning">No live colour probe data captured yet.</p>',
+            ].join('');
+        }
+
+        const attributeRange = probe.attributeCaptured
+            ? formatRecordAddress(probe.attributeStart)
+                + '..'
+                + formatRecordAddress(probe.attributeEnd - 1)
+                + ' ('
+                + probe.attributeTotalBytes
+                + ' bytes)'
+            : 'not captured';
+        const recentChange = probe.recentChange
+            ? (
+                'frame -'
+                + (probe.framesSinceChange === null ? '?' : probe.framesSinceChange)
+                + ': work '
+                + probe.recentChange.workingChangeCount
+                + ', attrs '
+                + probe.recentChange.attributeChangeCount
+                + ', attrs->'
+                + formatHex(probe.candidateValue, 2)
+                + ' '
+                + probe.recentChange.attributeCandidateChangeCount
+            )
+            : 'no recent change';
+        const candidateLabel = formatHex(probe.candidateValue, 2);
+
+        return [
+            '<div class="knight-lore-stage2-comparison-heading is-secondary">',
+            '<strong>Room colour 0x45 probe</strong>',
+            '<span>room '
+                + escapeHtml(roomLabel)
+                + ', documented '
+                + escapeHtml(formatRecordAddress(probe.documentedAddress))
+                + '='
+                + escapeHtml(formatHex(probe.documentedValue, 2))
+                + ', candidate '
+                + escapeHtml(candidateLabel)
+                + '</span>',
+            '</div>',
+            '<p class="knight-lore-stage2-note">'
+                + 'Reads the documented room colour byte and the Spectrum screen attribute bytes every frame. '
+                + 'If 0x5BAD remains fixed while the screen attributes change, the temporary cauldron colour is not stored in the room header.'
+                + '</p>',
+            '<table>',
+            '<tbody>',
+            '<tr>',
+            '<th>Documented colour</th>',
+            '<td class="mono">'
+                + escapeHtml(formatRecordAddress(probe.documentedAddress))
+                + ' = '
+                + escapeHtml(formatHex(probe.documentedValue, 2))
+                + ', renderer '
+                + escapeHtml(formatHex(probe.rendererColor, 6))
+                + '</td>',
+            '</tr>',
+            '<tr>',
+            '<th>Working window</th>',
+            '<td class="mono">'
+                + escapeHtml(formatRecordAddress(probe.workingWindowStart) + ': ' + formatByteList(probe.workingWindowBytes))
+                + '</td>',
+            '</tr>',
+            '<tr class="' + (probe.workingChanges && probe.workingChanges.length > 0 ? 'is-room-colour-changed' : '') + '">',
+            '<th>Working changes</th>',
+            '<td class="mono" title="' + escapeHtml(formatByteChangeDetails(probe.workingChanges)) + '">'
+                + escapeHtml(formatByteChangeSummary(probe.workingChanges))
+                + ', '
+                + escapeHtml(candidateLabel)
+                + ' at '
+                + escapeHtml(formatAddressList(probe.workingCandidateAddresses))
+                + '</td>',
+            '</tr>',
+            '<tr>',
+            '<th>Screen attributes</th>',
+            '<td class="mono">'
+                + escapeHtml(attributeRange)
+                + ', top values '
+                + escapeHtml(probe.attributeTopCounts)
+                + '</td>',
+            '</tr>',
+            '<tr class="' + (probe.attributeChangeCount > 0 ? 'is-room-colour-changed' : '') + '">',
+            '<th>Attribute changes</th>',
+            '<td class="mono" title="' + escapeHtml(formatByteChangeDetails(probe.attributeChanges)) + '">'
+                + escapeHtml(formatByteChangeSummary(probe.attributeChanges))
+                + ', recent '
+                + escapeHtml(recentChange)
+                + '</td>',
+            '</tr>',
+            '<tr>',
+            '<th>Candidate ' + escapeHtml(candidateLabel) + '</th>',
+            '<td class="mono">'
+                + 'screen count '
+                + probe.attributeCandidateCount
+                + ', first addresses '
+                + escapeHtml(formatAddressList(probe.attributeCandidateAddresses))
+                + '</td>',
+            '</tr>',
+            '</tbody>',
+            '</table>',
+        ].join('');
+    }
+
+    renderSpecialDynamicMarkerTable(markers) {
+        const rows = markers || [];
+        const counts = rows.reduce((memo, marker) => {
+            memo[marker.category] = (memo[marker.category] || 0) + 1;
+            return memo;
+        }, {});
+        const countLabel = ['wizard']
+            .map(category => category + ':' + (counts[category] || 0))
+            .join(', ');
+
+        return [
+            '<div class="knight-lore-stage2-comparison-heading is-secondary">',
+            '<strong>Live special markers</strong>',
+            '<span>'
+                + escapeHtml(countLabel)
+                + '</span>',
+            '</div>',
+            '<p class="knight-lore-stage2-note">'
+                + 'In room 0x88, wizard markers use live dynamic rows 8 and 9. '
+                + 'The cauldron is rendered directly from static background 0x13. '
+                + 'The spell marker uses live bytes at 0x5C68..0x5C6B.'
+                + '</p>',
+            rows.length === 0
+                ? '<p class="knight-lore-stage2-note is-warning">No live wizard marker found in current dynamic slots.</p>'
+                : [
+                    '<table>',
+                    '<thead><tr>',
+                    '<th>Class</th>',
+                    '<th>Dynamic address</th>',
+                    '<th>Sprite</th>',
+                    '<th>Position XYZ</th>',
+                    '<th>Dim XYZ</th>',
+                    '<th>Render</th>',
+                    '<th>Source</th>',
+                    '<th>Object-id hits</th>',
+                    '</tr></thead>',
+                    '<tbody>',
+                    rows.map(marker => {
+                        const record = marker.record || {};
+                        return (
+                            '<tr class="is-' + escapeHtml(marker.category || 'object') + '">' +
+                            '<td>' + escapeHtml(marker.label || marker.category || '--') + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatRecordAddress(record.address)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatHex(record.spriteId, 2)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatRoomSize(record.position)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatRoomSize(record.dimensions)) + '</td>' +
+                            '<td>' + (marker.render === false ? 'hidden' : 'shown') + '</td>' +
+                            '<td>' + escapeHtml(marker.source || '--') + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatDynamicObjectIdHits(marker.objectIdHits)) + '</td>' +
+                            '</tr>'
+                        );
+                    }).join(''),
+                    '</tbody>',
+                    '</table>',
+                ].join(''),
+        ].join('');
+    }
+
+    renderCauldronStaticProbeTable(room) {
+        const location = staticLocationForRoom(room);
+        const cauldronBackground = location && Array.isArray(location.backgrounds)
+            ? location.backgrounds.find(background => background.id === 0x13)
+            : null;
+        const records = cauldronBackground && Array.isArray(cauldronBackground.records)
+            ? cauldronBackground.records
+            : [];
+        const roomDepth = this.roomDimensions && Number.isFinite(this.roomDimensions.depth)
+            ? this.roomDimensions.depth
+            : null;
+
+        return [
+            '<div class="knight-lore-stage2-comparison-heading is-secondary">',
+            '<strong>Cauldron static 0x13 probe</strong>',
+            '<span>records: '
+                + records.length
+                + ', data '
+                + escapeHtml(formatRecordAddress(cauldronBackground ? cauldronBackground.dataAddress : null))
+                + '</span>',
+            '</div>',
+            '<p class="knight-lore-stage2-note">'
+                + 'Diagnostic only: static background 0x13 is rendered as cauldron. '
+                + 'Rendering is forced to the room center; raw static coordinates are retained here for reference.'
+                + '</p>',
+            records.length === 0
+                ? '<p class="knight-lore-stage2-note is-warning">No static background 0x13 record found in this room.</p>'
+                : [
+                    '<table>',
+                    '<thead><tr>',
+                    '<th>#</th>',
+                    '<th>Address</th>',
+                    '<th>Sprite</th>',
+                    '<th>Decoded XYZ</th>',
+                    '<th>Dim XYZ</th>',
+                    '<th>Static scene</th>',
+                    '<th>Y candidates</th>',
+                    '<th>Raw bytes</th>',
+                    '<th>Flags</th>',
+                    '</tr></thead>',
+                    '<tbody>',
+                    records.map((record, recordIndex) => {
+                        const currentScene = mapKnightLorePositionToScene(record.position, this.roomDimensions);
+                        const depthMinusY = roomDepth === null || !Number.isFinite(record.position.y)
+                            ? null
+                            : roomDepth - record.position.y;
+                        const flipped128Y = Number.isFinite(record.position.y)
+                            ? 128 - record.position.y
+                            : null;
+                        const yCandidates = [
+                            'raw ' + (Number.isFinite(record.position.y) ? record.position.y : '--'),
+                            'depth-y ' + (depthMinusY === null ? '--' : depthMinusY),
+                            '128-y ' + (flipped128Y === null ? '--' : flipped128Y),
+                        ].join(' | ');
+                        return (
+                            '<tr class="is-cauldron">' +
+                            '<td class="mono">' + recordIndex + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatRecordAddress(record.address)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatHex(record.spriteId, 2)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatRoomSize(record.position)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatRoomSize(record.dimensions)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatSceneVector(currentScene ? currentScene.vector : null)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(yCandidates) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatByteList(record.raw)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatHex(record.flags ? record.flags.raw : null, 2)) + '</td>' +
+                            '</tr>'
+                        );
+                    }).join(''),
+                    '</tbody>',
+                    '</table>',
+                ].join(''),
+        ].join('');
+    }
+
+    renderSpellMovementProbeTable(rows, room) {
+        const visibleRows = rows || [];
+        const totalHits = this.lastSpellProbeTotalHits || 0;
+        const changedRows = this.lastSpellProbeChangedHits || 0;
+        const roomLabel = room && room.id !== null && room.id !== undefined
+            ? formatHex(room.id, 2)
+            : '--';
+        const targetLabel = formatHexList(SPELL_OBSERVED_VALUES, 2);
+        const valueCounts = SPELL_OBSERVED_VALUES.map(value => (
+            formatHex(value, 2)
+                + ':'
+                + (this.lastSpellProbeValueCounts && this.lastSpellProbeValueCounts.get(value) || 0)
+        )).join(' ');
+
+        return [
+            '<div class="knight-lore-stage2-comparison-heading is-secondary">',
+            '<strong>Spell movement probe</strong>',
+            '<span>address '
+                + escapeHtml(formatRecordAddress(SPELL_PROBE_ADDRESS))
+                + ', observed values '
+                + escapeHtml(targetLabel)
+                + ', matched this frame: '
+                + totalHits
+                + ' ('
+                + escapeHtml(valueCounts)
+                + ')'
+                + ', changed: '
+                + changedRows
+                + ', room '
+                + escapeHtml(roomLabel)
+                + '</span>',
+            '</div>',
+            '<p class="knight-lore-stage2-note">'
+                + 'Diagnostic only: reads 0x5C68 every frame. Values 0xA0..0xA3 are the spell cycle, '
+                + '0xA4..0xA7 are wolf attack, and 0xAE is tracked as a possible item-display state.'
+                + '</p>',
+            '<table class="knight-lore-spell-probe-table">',
+            '<colgroup>',
+            '<col class="is-spell-probe-address-cell">',
+            '<col class="is-spell-probe-value-cell">',
+            '<col class="is-spell-probe-class-cell">',
+            '<col class="is-spell-probe-room-cell">',
+            '<col class="is-spell-probe-location-cell">',
+            '<col class="is-spell-probe-change-cell">',
+            '<col class="is-spell-probe-xyz-cell">',
+            '<col class="is-spell-probe-dim-cell">',
+            '<col class="is-spell-probe-window-cell">',
+            '</colgroup>',
+            '<thead><tr>',
+            '<th class="is-spell-probe-address-cell">Address</th>',
+            '<th class="is-spell-probe-value-cell">Value</th>',
+            '<th class="is-spell-probe-class-cell">Class</th>',
+            '<th class="is-spell-probe-room-cell">Room +8</th>',
+            '<th class="is-spell-probe-location-cell">Location</th>',
+            '<th class="is-spell-probe-change-cell">Changed bytes</th>',
+            '<th class="is-spell-probe-xyz-cell">+1,+2,+3</th>',
+            '<th class="is-spell-probe-dim-cell">+4,+5,+6</th>',
+            '<th class="is-spell-probe-window-cell">Probe window</th>',
+            '</tr></thead>',
+            '<tbody>',
+            visibleRows.length === 0
+                ? [
+                    '<tr class="is-spell-probe-empty">',
+                    '<td class="mono is-spell-probe-address-cell">' + escapeHtml(formatRecordAddress(SPELL_PROBE_ADDRESS)) + '</td>',
+                    '<td class="mono is-spell-probe-value-cell">--</td>',
+                    '<td class="is-spell-probe-class-cell">unavailable</td>',
+                    '<td class="mono is-spell-probe-room-cell">--</td>',
+                    '<td class="is-spell-probe-location-cell">--</td>',
+                    '<td class="mono is-spell-probe-change-cell">--</td>',
+                    '<td class="mono is-spell-probe-xyz-cell">--, --, --</td>',
+                    '<td class="mono is-spell-probe-dim-cell">--, --, --</td>',
+                    '<td class="mono is-spell-probe-window-cell">--</td>',
+                    '</tr>',
+                ].join('')
+                : visibleRows.map(row => {
+                const rowClass = row.changes && row.changes.length > 0
+                    ? ' class="is-spell-probe-changed"'
+                    : (row.observedThisFrame ? '' : ' class="is-spell-probe-held"');
+                const changeDetails = formatSpellProbeChanges(row);
+                const changeSummary = formatSpellProbeChangeSummary(row);
+                return (
+                    '<tr' + rowClass + '>' +
+                    '<td class="mono is-spell-probe-address-cell">' + escapeHtml(formatRecordAddress(row.address)) + '</td>' +
+                    '<td class="mono is-spell-probe-value-cell">'
+                        + escapeHtml(formatHex(row.observedValue, 2))
+                        + '</td>' +
+                    '<td class="is-spell-probe-class-cell">' + escapeHtml(row.observedKind || 'other') + '</td>' +
+                    '<td class="mono is-spell-probe-room-cell">' + escapeHtml(formatHex(row.candidateRoomId, 2)) + '</td>' +
+                    '<td class="is-spell-probe-location-cell">' + escapeHtml(formatDynamicSlotLocation(row.address)) + '</td>' +
+                    '<td class="mono is-spell-probe-change-cell" title="' + escapeHtml(changeDetails) + '">'
+                        + escapeHtml(changeSummary)
+                        + '</td>' +
+                    '<td class="mono is-spell-probe-xyz-cell">' + escapeHtml(formatRoomSize(row.candidatePosition)) + '</td>' +
+                    '<td class="mono is-spell-probe-dim-cell">' + escapeHtml(formatRoomSize(row.candidateDimensions)) + '</td>' +
+                    '<td class="mono is-spell-probe-window-cell">'
+                        + escapeHtml(formatRecordAddress(row.windowStart) + ': ' + formatByteList(row.windowBytes))
+                        + '</td>' +
+                    '</tr>'
+                );
+            }).join(''),
+            '</tbody>',
+            '</table>',
+        ].join('');
+    }
+
+    renderDynamicObjectCandidateTable(objectCandidates, backgroundPrefixCount) {
+        const maxRows = 64;
+        const visibleRows = objectCandidates.slice(0, maxRows);
+        const overflowNote = objectCandidates.length > maxRows
+            ? '<p class="knight-lore-stage2-note">Showing first '
+                + maxRows
+                + ' object candidates; '
+                + (objectCandidates.length - maxRows)
+                + ' additional candidates hidden.</p>'
+            : '';
+
+        return [
+            '<div class="knight-lore-stage2-comparison-heading is-secondary">',
+            '<strong>Dynamic object candidates</strong>',
+            '<span>working memory only, background prefix slots excluded: '
+                + backgroundPrefixCount
+                + ', candidates: '
+                + objectCandidates.length
+                + '</span>',
+            '</div>',
+            '<p class="knight-lore-stage2-note">'
+                + 'Rows below come from 0x20-byte dynamic slots after the decoded background prefix. '
+                + 'Bytes +0x08..+0x1F are still scanned for experimental object-id candidates '
+                + '0x10, 0x1A, 0x1B, and 0x1C.'
+                + '</p>',
+            objectCandidates.length === 0
+                ? '<p class="knight-lore-stage2-note is-warning">No non-background dynamic visual records found.</p>'
+                : [
+                    overflowNote,
+                    '<table>',
+                    '<thead><tr>',
+                    '<th>Slot</th>',
+                    '<th>Address</th>',
+                    '<th>Sprite</th>',
+                    '<th>Class</th>',
+                    '<th>Object-id hits</th>',
+                    '<th>Position XYZ</th>',
+                    '<th>Dim XYZ</th>',
+                    '<th>Flags</th>',
+                    '<th>Visual bytes</th>',
+                    '<th>Full 0x20 slot</th>',
+                    '</tr></thead>',
+                    '<tbody>',
+                    visibleRows.map(record => {
+                        const semantic = classifyDynamicObjectRecord(record);
+                        const rowClass = semantic.category === 'object'
+                            ? ''
+                            : ' class="is-special-object is-' + escapeHtml(semantic.category) + '"';
+                        return (
+                            '<tr' + rowClass + '>' +
+                            '<td class="mono">' + record.slotIndex + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatRecordAddress(record.address)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatHex(record.spriteId, 2)) + '</td>' +
+                            '<td title="' + escapeHtml(semantic.source) + '">' + escapeHtml(semantic.label) + '</td>' +
+                            '<td class="mono" title="' + escapeHtml(semantic.source) + '">'
+                                + escapeHtml(formatDynamicObjectIdHits(semantic.objectIdHits))
+                                + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatRoomSize(record.position)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatRoomSize(record.dimensions)) + '</td>' +
+                            '<td class="mono" title="' + escapeHtml(record.flags && record.flags.bits ? record.flags.bits : '') + '">'
+                                + escapeHtml(formatHex(record.flags ? record.flags.raw : null, 2))
+                                + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatByteList(record.raw)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatByteList(record.slotRaw)) + '</td>' +
+                            '</tr>'
+                        );
+                    }).join(''),
+                    '</tbody>',
+                    '</table>',
+                ].join(''),
+        ].join('');
+    }
+
+    renderCollectableItemTable(collectableItems, roomId, resolvedRecords = null) {
+        const records = resolvedRecords || (
+            collectableItems && collectableItems.currentRoomRecords
+                ? collectableItems.currentRoomRecords
+                : []
+        );
+        const totalRecords = collectableItems && collectableItems.records
+            ? collectableItems.records.length
+            : 0;
+        const tableStart = collectableItems ? collectableItems.tableStart : null;
+        const tableEnd = collectableItems ? collectableItems.tableEnd : null;
+        const source = collectableItems && collectableItems.source
+            ? collectableItems.source
+            : 'live working memory';
+        const rangeLabel = tableStart !== null && tableEnd !== null
+            ? formatRecordAddress(tableStart) + '..' + formatRecordAddress(tableEnd - 1)
+            : 'not captured';
+        const roomLabel = roomId === null || roomId === undefined
+            ? 'unknown room'
+            : 'room ' + formatHex(roomId, 2);
+
+        return [
+            '<div class="knight-lore-stage2-comparison-heading is-secondary">',
+            '<strong>Collectable items in current room</strong>',
+            '<span>'
+                + escapeHtml(source)
+                + ', table '
+                + escapeHtml(rangeLabel)
+                + ', '
+                + escapeHtml(roomLabel)
+                + ', current-room items: '
+                + records.length
+                + ', total records: '
+                + totalRecords
+                + '</span>',
+            '</div>',
+            '<p class="knight-lore-stage2-note">'
+                + 'Live item rendering uses slots at 0x5C48 and 0x5C68. '
+                + 'A zero sprite/object byte marks that slot inactive; 0x6FF2 is retained as storage/writeback metadata.'
+                + '</p>',
+            records.length === 0
+                ? '<p class="knight-lore-stage2-note is-warning">No live collectable item currently points to this room.</p>'
+                : [
+                    '<table>',
+                    '<thead><tr>',
+                    '<th>Live slot</th>',
+                    '<th>Live address</th>',
+                    '<th>Storage #</th>',
+                    '<th>Storage address</th>',
+                    '<th>Live sprite</th>',
+                    '<th>Live room</th>',
+                    '<th>Live XYZ</th>',
+                    '<th>Live source</th>',
+                    '<th>Storage room</th>',
+                    '<th>Storage XYZ</th>',
+                    '<th>Storage raw</th>',
+                    '</tr></thead>',
+                    '<tbody>',
+                    records.map(record => (
+                        '<tr>' +
+                        '<td class="mono">' + (record.liveSlotIndex !== null && record.liveSlotIndex !== undefined ? record.liveSlotIndex : '--') + '</td>' +
+                        '<td class="mono">' + escapeHtml(formatRecordAddress(record.liveSlotAddress)) + '</td>' +
+                        '<td class="mono">' + (record.storageRecordIndex !== null && record.storageRecordIndex !== undefined ? record.storageRecordIndex : '--') + '</td>' +
+                        '<td class="mono">' + escapeHtml(formatRecordAddress(record.storageRecordAddress)) + '</td>' +
+                        '<td class="mono">' + escapeHtml(formatHex(
+                            record.spriteId !== null && record.spriteId !== undefined
+                                ? record.spriteId
+                                : record.graphicId,
+                            2
+                        )) + '</td>' +
+                        '<td class="mono">' + escapeHtml(formatHex(record.liveRoomId, 2)) + '</td>' +
+                        '<td class="mono">' + escapeHtml(formatRoomSize(record.livePosition)) + '</td>' +
+                        '<td class="mono">' + escapeHtml(record.livePositionSource || '0x6FF2 table') + '</td>' +
+                        '<td class="mono">' + escapeHtml(formatHex(record.storageScreen, 2)) + '</td>' +
+                        '<td class="mono">' + escapeHtml(formatRoomSize(record.storagePosition)) + '</td>' +
+                        '<td class="mono">' + escapeHtml(formatByteList(record.raw)) + '</td>' +
+                        '</tr>'
+                    )).join(''),
+                    '</tbody>',
+                    '</table>',
+                ].join(''),
         ].join('');
     }
 
@@ -1241,6 +2755,22 @@ export class KnightLoreStage0Renderer {
         this.wallMaterial.dispose();
         this.viewerWallMaterial.dispose();
         this.clearStaticBackgroundGeometry();
+        this.clearSpecialDynamicMarkers();
+        this.clearObjectWireframes();
+        this.objectWireframeMaterial.dispose();
+        this.specialObjectWireframeMaterials.forEach(material => {
+            material.dispose();
+        });
+        this.clearCollectableItemMarkers();
+        this.collectableItemGeometry.dispose();
+        this.collectableItemMaterials.forEach(material => {
+            material.dispose();
+        });
+        this.collectableItemFallbackMaterial.dispose();
+        this.spellMarkerGeometry.dispose();
+        this.spellCycleMaterial.dispose();
+        this.spellAttackMaterial.dispose();
+        this.spellItemDisplayMaterial.dispose();
         this.playerBodyMesh.geometry.dispose();
         this.playerHeadMesh.geometry.dispose();
         this.playerPointerMesh.geometry.dispose();

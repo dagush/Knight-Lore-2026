@@ -484,3 +484,193 @@ Strict caveats:
 - The state/orientation table now matches observed behaviour, but `0x1F` remains as a tolerated wolf east/south alias until a future pass confirms whether it is needed.
 - Static room details are still schematic debug geometry; original textures are intentionally not used yet.
 - The page-level hidden debug controls remain in the HTML because they may be useful in later stages.
+
+## 2026-06-07 - Stage 4 Start and Working-Memory Object Pass
+
+Context:
+
+- Started Stage 4, originally planned as "Static and simple objects".
+- Decided to revise the approach so non-player objects come from working memory only, rather than mixing static room object descriptors with live dynamic records.
+- This means the work also started covering part of Stage 5, because moving and dynamic objects are first-class citizens in the same working-memory slot system.
+
+Main decision:
+
+- Use the dynamic working-memory visual slots as the authoritative source for renderable non-player objects.
+- Keep static data useful for room enclosure/background semantics, but do not require static object membership to decide whether a live object exists in the room.
+- Exclude the already-accounted-for static background prefix from the dynamic object candidate list.
+
+Implementation:
+
+- Added a dynamic-slot classifier below the Stage 2 room diagnostics.
+- Listed remaining non-background dynamic records with:
+  - slot index and slot address;
+  - sprite id;
+  - decoded position;
+  - decoded dimensions;
+  - flags;
+  - raw visual bytes;
+  - full 0x20-byte slot contents.
+- Added simple wireframe boxes for dynamic object candidates in the Three.js scene.
+- Kept the boxes schematic and data-driven so moving objects update naturally from frame-by-frame working-memory reads.
+
+Validation:
+
+- Gustavo manually compared several rooms against the emulator view.
+- The static and dynamic information appeared correct.
+- The wireframe boxes gave a useful first 3D representation of all visible object slots.
+
+Stage status:
+
+- This pass effectively merged the beginning of Stage 4 with the first useful part of Stage 5.
+- The important conceptual shift was that "simple static objects" and "dynamic objects" should be handled through the same working-memory record path whenever the game already exposes them there.
+
+Strict caveats:
+
+- The wireframes are still debug proxies, not final geometry.
+- Object semantics are still mostly inferred from sprite/object ids and working-memory placement.
+- The stage boundary between Stage 4 and Stage 5 is now practical rather than strict: the same data path serves both.
+
+## 2026-06-08 - Collectable Items, Charms, and HTML Pokes
+
+Context:
+
+- Continued the Stage 4/5 object work by investigating collectable items, also called charms in some external documents.
+- The initial assumption was that the table at `0x6FF2..0x7111` gave current item state directly.
+- Testing showed this was not true during active gameplay.
+
+Item investigation:
+
+- Confirmed that the static/storage charm table is updated when the player leaves a room, not continuously while the item is being carried, dropped, or pushed.
+- Added probes to compare storage records against live working-memory changes.
+- Identified the live item slots in working memory:
+  - first live item slot: `0x5C48`;
+  - first live item XYZ: `0x5C49..0x5C4B`;
+  - first live item room id: `0x5C50`;
+  - second live item slot: `0x5C68`;
+  - second live item XYZ: `0x5C69..0x5C6B`;
+  - second live item room id: `0x5C70`.
+- Confirmed that a zero sprite/object byte marks an inactive item slot.
+- Confirmed by testing that only two charms can be active in a room.
+
+Rendering:
+
+- Added coloured boxes for live collectable items.
+- Updated the rendering path so item positions come from the live working-memory slots every frame.
+- Removed the now-validated item probe tables from the visible page once the coloured boxes were confirmed to move correctly.
+
+HTML poke mechanism:
+
+- Added an HTML-configured poke mechanism to make testing easier.
+- Kept the active automatic pokes to:
+  - immunity;
+  - infinite lives.
+- The earlier "easy mode" poke was tested and found not to behave well, so it was not kept as an active preset.
+- Added a small `Inventory 1` input and `Send` button under the emulator.
+- The control writes to decimal address `23516` (`0x5BDC`), identified as the first inventory item byte.
+- The input accepts decimal and common hexadecimal forms, such as `42`, `0x2A`, `&2A`, `$2A`, `2Ah`, and `A0`.
+- The control reports readback so the test page tells us whether the poke actually applied.
+
+Validation:
+
+- Gustavo tested item pickup, carrying, dropping, pushing, room transitions, and two-item cases.
+- The live item boxes followed the emulator behaviour correctly.
+- The storage table behaviour was understood as writeback/state persistence rather than live object position.
+
+Strict caveats:
+
+- The `0x6FF2` table remains useful historical/storage metadata, not the live source for item placement.
+- The HTML poke control is a debugging/testing tool, not part of the game renderer.
+- The item geometry is still schematic; charm-specific models or sprites are intentionally deferred.
+
+## 2026-06-10 - Cauldron Room, Ending Coverage, and Stage 4/5 Closure
+
+Context:
+
+- Continued work that started on Monday and finished today on the cauldron room (`0x88`).
+- The target was to cover the mage/wizard, spell/bubbles, cauldron, live charms, and the special room behaviour without overfitting static documentation errors.
+
+Wizard / mage:
+
+- Tested several candidate ids from external documentation and disassembly notes.
+- Confirmed that the wizard/mage position is best represented from live dynamic background rows in the room comparison:
+  - rows 8 and 9 in room `0x88`;
+  - one part behaves as the head and one as the body.
+- Added purple wizard markers driven by live dynamic records.
+- Removed earlier false or overly broad marker candidates that appeared in every room.
+
+Spell / bubbles:
+
+- Investigated the moving spell/bubbles through working memory.
+- Confirmed the live spell slot around `0x5C68`.
+- Confirmed the spell cycles through values:
+  - `0xA0..0xA3` for the normal cycle;
+  - `0xA4..0xA7` for the wolf attack state;
+  - `0xAE` as an item-display-like state.
+- Added a small sphere marker:
+  - yellow/orange for the cycle/display states;
+  - red for the attack state.
+- Confirmed the marker position comes from the three following bytes and tracks the emulator view.
+
+Cauldron:
+
+- Restored cauldron handling through static background id `0x13`.
+- Treated the cauldron as the single fixed room-center fixture.
+- Forced the rendered cauldron marker to the centre of the room floor rather than chasing suspicious static Y/depth coordinates.
+- Kept the rule explicit so future readers understand this is a deliberate renderer decision for a unique fixture.
+
+Room colour and post-processing effect:
+
+- Observed that after depositing the correct charm in the cauldron, the Spectrum room briefly changes colours and returns to yellow.
+- First tried to treat the room colour as dynamic through the documented room colour byte at `0x5BAD`.
+- Added and then hid a room-colour probe after discovering the effect does not belong to the semantic room model.
+- Gustavo checked the disassembly and confirmed the colour cycling is done by directly writing to Spectrum screen memory/attribute memory.
+- Decision: this effect is out of scope for the semantic 3D renderer for now.
+- The 3D room colour should remain based on semantic room state, not post-render Spectrum screen writes.
+- The probing helper code is left dormant in case a future visual-effects stage needs it.
+
+Ending screen:
+
+- Gustavo finished the game.
+- The current semantic/Three.js pipeline already covers the ending 3D screen, which is an excellent validation result.
+- No special ending-only renderer path was needed.
+
+Visible diagnostics cleanup:
+
+- Removed or hid old visible probes once they had served their purpose:
+  - spell movement probe;
+  - live special markers;
+  - cauldron static `0x13` probe;
+  - room colour `0x45` probe.
+- Kept useful object/item diagnostics and the core room/background comparison.
+
+Stage status:
+
+- Stages 4 and 5 were effectively completed together for the current schematic renderer.
+- The working-memory object path now covers:
+  - simple blocks and dynamic object candidates;
+  - moving object wireframes;
+  - collectable charms;
+  - two simultaneous live charms;
+  - wizard/mage parts;
+  - spell/bubbles;
+  - cauldron;
+  - ending-room coverage.
+
+Verification:
+
+- Rebuilt with webpack after each code pass.
+- Ran the emulator regression test after runtime changes.
+- Used browser smoke tests against the local workbench to verify:
+  - updated cache keys;
+  - no console errors;
+  - probes hidden when no longer needed;
+  - inventory poke control applies and reports readback;
+  - the Stage 4/5 diagnostics still render.
+- Manual gameplay validation by Gustavo confirmed the main dynamic behaviours.
+
+Strict caveats:
+
+- Geometry remains schematic and proxy-based.
+- We still do not use original textures or faithful object meshes.
+- The Spectrum screen-memory colour cycling is intentionally not represented in the semantic 3D view.
+- Dormant probe code remains because it may be useful for a later visual-effects or screen-memory investigation stage.

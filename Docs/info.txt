@@ -1,22 +1,59 @@
 Coords:
 My student detected that the exact expressions to go from low-resolution integer coordinates, where objects are initialised in memory, are translated to high-resolution coordinates are:
-X_h = X_L * 16 + X_l * 8 + 72
-Y_h = Y_L * 16 + Y_l * 8 + 72
-Z_h = Z_L * 12 + Z_l * 4 + ScreenZ
+    X_h = X_L * 16 + X_l * 8 + 72
+    Y_h = Y_L * 16 + Y_l * 8 + 72
+    Z_h = Z_L * 12 + Z_l * 4 + ScreenZ
 Where X_L, Y_L and Z_L are the low resolution coordinates, the _l is information related to the sprites and allow to work with self-moving objects, and ScreenZ is always 128.
 
 Main Character:
-The head location information is located at 5C20h, 5C2Ah and 5C2Bh for X, Y and Z.
-The body location information is at         5C09h, 5C0Ah and 5C0Bh.
-Positions 5C41h and 5C45h indicate the head and body sprite codes.
-Positions 5C0Fh and 5C2Fh contain the mirror flags for orientation.
+    The head location information is located at 5C20h, 5C2Ah and 5C2Bh for X, Y and Z.
+    The body location information is at         5C09h, 5C0Ah and 5C0Bh.
+    Positions 5C41h and 5C45h indicate the head and body sprite codes.
+    Positions 5C0Fh and 5C2Fh contain the mirror flags for orientation.
 
 Current Room
- id: 5C10h
- color: 5BADh
- size: 5BABh, 5BACh and 5BAEh (X, Y, Z)
- Walls: use static information
+     id: 5C10h
+     color: 5BADh
+     size: 5BABh, 5BACh and 5BAEh (X, Y, Z)
+     Walls: use static information
 
-Working memory:
-between 5BA0h and 6107h
+Working memory: between 5BA0h and 6107h
+
+Note: guard head: 0x96: west, 0x97: east
+      guard body: 0x90~0x95: west, 0x98~0x9D: east
+      portcullis: 0x08~0x09 west/east
+      ball: 0xB2~0xB3
+      ghost: 0x50~0x52
+
+items/charms: During the game, the player has to collect and bring to the mage a number of items,
+       of 8 different types. I have found this page:
+       https://www.porotal.org/knightlore/
+       which describes, from a player's perspective, where they can be found (and in
+       which order they must be retrieved).
+       In this document:
+       https://www.icemark.com/dataformats/knightlore/index.html
+       it seems they are stored starting at 0x6ff2 (until 0x7111), in groups of 9 bytes.
+       The screen (room?) where they are located is coded in offset 04, their current position
+       is in 05, 06 and 07.
+       -> The items in the table 0x6ff2 are updated once the player LEAVES the room leaving the
+       item behind, not while the player is in the room toying around.
+item codes:
+       0x60: diamond/gem
+       0x61: poison
+       0x62: shoe/boot
+       0x63: chalice/vase
+       0x64: cup
+       0x65: bottle
+       0x66: ball/crystal ball
+       0x67: life
+item locations in working memory (only 2):
+1st:   0x5C48 -> sprite/object ID 1
+       0x5C49 ~ 0x5C4B -> XYZ
+       0x5C50 -> room ID
+2nd:   0x5C68 -> sprite/object ID 2
+       0x5C69 ~ 0x5C6B -> X, Y, Z
+       0x5C70 -> room ID
+
+wizard: 0x9F and 0x9E -> head
+        0x90 ~ 0x95 -> body
 

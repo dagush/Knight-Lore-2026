@@ -3,6 +3,9 @@ export const KNIGHT_LORE_MEMORY = {
     scratchEnd: 0x6108,
     staticStart: 0x6248,
     staticEnd: 0xaf6c,
+    itemTableStart: 0x6ff2,
+    itemTableEnd: 0x7112,
+    itemRecordSize: 9,
     dynamicRoomStart: 0x5c88,
     dynamicVisualSlotSize: 0x20,
     dynamicVisualRecordSize: 8,
@@ -25,6 +28,15 @@ export const KNIGHT_LORE_MEMORY = {
         headZ: 0x5c2b,
         headSprite: 0x5c41,
         bodySprite: 0x5c45,
+    },
+    item: {
+        liveSlotStarts: [0x5c48, 0x5c68],
+        inactiveSpriteId: 0x00,
+        spriteOffset: 0,
+        xOffset: 1,
+        yOffset: 2,
+        zOffset: 3,
+        roomOffset: 8,
     },
 };
 
@@ -91,6 +103,16 @@ const DEBUG_BYTE_DEFINITIONS = [
     ['player.head.mirrorFlag', KNIGHT_LORE_MEMORY.player.headMirrorFlag],
     ['player.head.sprite', KNIGHT_LORE_MEMORY.player.headSprite],
     ['player.body.sprite', KNIGHT_LORE_MEMORY.player.bodySprite],
+    ['item0.live.sprite', KNIGHT_LORE_MEMORY.item.liveSlotStarts[0]],
+    ['item0.live.x', KNIGHT_LORE_MEMORY.item.liveSlotStarts[0] + KNIGHT_LORE_MEMORY.item.xOffset],
+    ['item0.live.y', KNIGHT_LORE_MEMORY.item.liveSlotStarts[0] + KNIGHT_LORE_MEMORY.item.yOffset],
+    ['item0.live.z', KNIGHT_LORE_MEMORY.item.liveSlotStarts[0] + KNIGHT_LORE_MEMORY.item.zOffset],
+    ['item0.live.room', KNIGHT_LORE_MEMORY.item.liveSlotStarts[0] + KNIGHT_LORE_MEMORY.item.roomOffset],
+    ['item1.live.sprite', KNIGHT_LORE_MEMORY.item.liveSlotStarts[1]],
+    ['item1.live.x', KNIGHT_LORE_MEMORY.item.liveSlotStarts[1] + KNIGHT_LORE_MEMORY.item.xOffset],
+    ['item1.live.y', KNIGHT_LORE_MEMORY.item.liveSlotStarts[1] + KNIGHT_LORE_MEMORY.item.yOffset],
+    ['item1.live.z', KNIGHT_LORE_MEMORY.item.liveSlotStarts[1] + KNIGHT_LORE_MEMORY.item.zOffset],
+    ['item1.live.room', KNIGHT_LORE_MEMORY.item.liveSlotStarts[1] + KNIGHT_LORE_MEMORY.item.roomOffset],
     ['room.dynamicStart', KNIGHT_LORE_MEMORY.dynamicRoomStart],
 ];
 
@@ -706,6 +728,184 @@ function parseStaticCacheSummary(frame) {
     };
 }
 
+function getLiveItemMemory(frame) {
+    if (!frame || !frame.itemMemory) return null;
+    return {
+        memory: frame.itemMemory,
+        memoryStart: frame.itemMemoryStart || KNIGHT_LORE_MEMORY.itemTableStart,
+        memoryEnd: frame.itemMemoryEnd || KNIGHT_LORE_MEMORY.itemTableEnd,
+    };
+}
+
+function parseLiveCollectableItemSlot(memory, memoryStart, room, slotIndex) {
+    const slotAddress = KNIGHT_LORE_MEMORY.item.liveSlotStarts[slotIndex];
+    const spriteId = readKnightLoreByte(
+        memory,
+        memoryStart,
+        slotAddress + KNIGHT_LORE_MEMORY.item.spriteOffset
+    );
+    const position = readPosition(memory, memoryStart, {
+        x: slotAddress + KNIGHT_LORE_MEMORY.item.xOffset,
+        y: slotAddress + KNIGHT_LORE_MEMORY.item.yOffset,
+        z: slotAddress + KNIGHT_LORE_MEMORY.item.zOffset,
+    });
+    const roomId = readKnightLoreByte(
+        memory,
+        memoryStart,
+        slotAddress + KNIGHT_LORE_MEMORY.item.roomOffset
+    );
+    const hasValidBytes = spriteId !== null
+        && roomId !== null
+        && position.x !== null
+        && position.y !== null
+        && position.z !== null;
+    const isActive = Boolean(
+        hasValidBytes
+        && spriteId !== KNIGHT_LORE_MEMORY.item.inactiveSpriteId
+    );
+
+    return {
+        slotIndex,
+        slotAddress,
+        spriteId,
+        graphicId: spriteId,
+        position,
+        roomId,
+        isActive,
+        inCurrentRoom: Boolean(
+            isActive
+            && room
+            && room.id !== null
+            && room.id !== undefined
+            && roomId === room.id
+        ),
+        source: formatLiveItemSlotSource(slotAddress),
+    };
+}
+
+function parseLiveCollectableItems(memory, memoryStart, room) {
+    return KNIGHT_LORE_MEMORY.item.liveSlotStarts.map((slotAddress, slotIndex) => (
+        parseLiveCollectableItemSlot(memory, memoryStart, room, slotIndex)
+    ));
+}
+
+function formatLiveItemSlotSource(slotAddress) {
+    return '0x'
+        + slotAddress.toString(16).toUpperCase().padStart(4, '0')
+        + '..0x'
+        + (slotAddress + KNIGHT_LORE_MEMORY.item.roomOffset).toString(16).toUpperCase().padStart(4, '0')
+        + ' live item slot';
+}
+
+function findStorageRecordForLiveItem(records, liveItem, usedStorageIndexes = new Set()) {
+    if (
+        !liveItem
+        || !liveItem.isActive
+        || liveItem.spriteId === null
+        || liveItem.spriteId === undefined
+        || liveItem.spriteId === KNIGHT_LORE_MEMORY.item.inactiveSpriteId
+    ) {
+        return null;
+    }
+    const spriteMatches = records.filter(record => (
+        record.graphicId === liveItem.spriteId && !usedStorageIndexes.has(record.index)
+    ));
+    if (spriteMatches.length === 0) return null;
+    if (spriteMatches.length === 1) return spriteMatches[0];
+
+    return spriteMatches.find(record => record.currentScreen === liveItem.roomId)
+        || spriteMatches.find(record => record.startScreen === liveItem.roomId)
+        || spriteMatches[0];
+}
+
+function recordFromLiveItem(liveItem, storageRecord) {
+    return {
+        index: storageRecord ? storageRecord.index : null,
+        address: storageRecord ? storageRecord.address : null,
+        raw: storageRecord ? storageRecord.raw : [],
+        graphicId: liveItem.spriteId,
+        spriteId: liveItem.spriteId,
+        liveSlotIndex: liveItem.slotIndex,
+        liveSlotAddress: liveItem.slotAddress,
+        startPosition: storageRecord ? storageRecord.startPosition : null,
+        startScreen: storageRecord ? storageRecord.startScreen : null,
+        currentPosition: storageRecord ? storageRecord.currentPosition : liveItem.position,
+        currentScreen: storageRecord ? storageRecord.currentScreen : liveItem.roomId,
+        storageRecordIndex: storageRecord ? storageRecord.index : null,
+        storageRecordAddress: storageRecord ? storageRecord.address : null,
+        storagePosition: storageRecord ? storageRecord.currentPosition : null,
+        storageScreen: storageRecord ? storageRecord.currentScreen : null,
+        livePosition: liveItem.position,
+        liveRoomId: liveItem.roomId,
+        livePositionSource: liveItem.source,
+        liveRoomSource: liveItem.source,
+        isActive: liveItem.isActive,
+        inCurrentRoom: liveItem.inCurrentRoom,
+    };
+}
+
+function parseCollectableItems(frame, room, memory, memoryStart) {
+    const itemMemory = getLiveItemMemory(frame);
+    const liveItems = parseLiveCollectableItems(memory, memoryStart, room);
+    if (!itemMemory) {
+        return {
+            tableStart: KNIGHT_LORE_MEMORY.itemTableStart,
+            tableEnd: KNIGHT_LORE_MEMORY.itemTableEnd,
+            recordSize: KNIGHT_LORE_MEMORY.itemRecordSize,
+            records: [],
+            currentRoomRecords: [],
+            liveItems,
+            source: 'live item table unavailable',
+        };
+    }
+
+    const records = [];
+    const recordCount = Math.floor(
+        (itemMemory.memoryEnd - itemMemory.memoryStart) / KNIGHT_LORE_MEMORY.itemRecordSize
+    );
+    for (let index = 0; index < recordCount; index++) {
+        const address = itemMemory.memoryStart + index * KNIGHT_LORE_MEMORY.itemRecordSize;
+        const raw = readBytes(
+            itemMemory.memory,
+            itemMemory.memoryStart,
+            address,
+            KNIGHT_LORE_MEMORY.itemRecordSize
+        );
+        if (raw.some(byte => byte === null)) continue;
+
+        records.push({
+            index,
+            address,
+            raw,
+            graphicId: raw[0],
+            startPosition: {x: raw[1], y: raw[2], z: raw[3]},
+            startScreen: raw[4],
+            currentPosition: {x: raw[5], y: raw[6], z: raw[7]},
+            currentScreen: raw[8],
+            inCurrentRoom: room && room.id !== null && room.id !== undefined && raw[8] === room.id,
+        });
+    }
+
+    const usedStorageIndexes = new Set();
+    const currentRoomRecords = liveItems
+        .filter(liveItem => liveItem.inCurrentRoom)
+        .map(liveItem => {
+            const storageRecord = findStorageRecordForLiveItem(records, liveItem, usedStorageIndexes);
+            if (storageRecord) usedStorageIndexes.add(storageRecord.index);
+            return recordFromLiveItem(liveItem, storageRecord);
+        });
+
+    return {
+        tableStart: itemMemory.memoryStart,
+        tableEnd: itemMemory.memoryEnd,
+        recordSize: KNIGHT_LORE_MEMORY.itemRecordSize,
+        records,
+        currentRoomRecords,
+        liveItems,
+        source: 'live slots at 0x5C48 and 0x5C68 with 0x6FF2 storage table',
+    };
+}
+
 export function extractKnightLoreScene(source, opts = {}) {
     const {memory, memoryStart, frame} = getMemoryAndStart(source, opts);
     const room = parseRoom(memory, memoryStart);
@@ -727,6 +927,12 @@ export function extractKnightLoreScene(source, opts = {}) {
     });
     const dynamicVisualRecords = parseDynamicVisualRecords(memory, memoryStart, opts);
     const backgroundComparison = compareStaticBackgroundsToDynamic(staticLocation, dynamicVisualRecords);
+    const collectableItems = parseCollectableItems(
+        frame,
+        room,
+        memory,
+        memoryStart
+    );
 
     return {
         memoryStart,
@@ -775,8 +981,10 @@ export function extractKnightLoreScene(source, opts = {}) {
             dynamicHeader: readBytes(memory, memoryStart, KNIGHT_LORE_MEMORY.dynamicRoomStart, 8),
             dynamicVisualRecords,
             sprites: dynamicVisualRecords,
+            collectableItems,
         },
         objects: dynamicVisualRecords,
+        collectableItems,
         raw: {
             selectedBytes: parseSelectedBytes(memory, memoryStart),
         },

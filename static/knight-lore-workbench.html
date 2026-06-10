@@ -2,7 +2,7 @@
 <html>
     <head>
         <title>JSSpeccy v3</title>
-        <script src="jsspeccy/jsspeccy.js?v=knightlore-stage3-20260606r"></script>
+        <script src="jsspeccy/jsspeccy.js?v=knightlore-stage4-20260610d"></script>
         <style>
             body {
                 background-color: #444;
@@ -35,6 +35,49 @@
             body.hide-deferred-debug #raw-memory-section,
             body.hide-deferred-debug #selected-bytes-section {
                 display: none;
+            }
+            #emulator-column {
+                width: 640px;
+            }
+            #inventory-poke-panel {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin-top: 8px;
+                padding: 8px;
+                background: #f4f4f4;
+                border: 1px solid #aaa;
+                box-sizing: border-box;
+                font: 13px Arial, Helvetica, sans-serif;
+            }
+            #inventory-poke-panel input {
+                width: 76px;
+                padding: 3px 5px;
+                font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            }
+            #inventory-poke-panel button {
+                min-height: 24px;
+                padding: 0 10px;
+                border: 1px solid #999;
+                border-radius: 4px;
+                background: #333;
+                color: white;
+                font: 12px Arial, Helvetica, sans-serif;
+                cursor: pointer;
+            }
+            #inventory-poke-panel button:disabled {
+                cursor: not-allowed;
+                opacity: 0.6;
+            }
+            #inventory-poke-status {
+                min-width: 260px;
+                color: #555;
+            }
+            #inventory-poke-status.is-error {
+                color: #991b1b;
+            }
+            #inventory-poke-status.is-ok {
+                color: #166534;
             }
             #knight-lore-stage0 {
                 width: 640px;
@@ -131,8 +174,6 @@
             }
             #knight-lore-stage0 .knight-lore-stage2-comparison,
             #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison {
-                max-height: 220px;
-                overflow: auto;
                 padding: 8px;
                 background: #fafafa;
                 border-top: 1px solid #ccc;
@@ -146,6 +187,10 @@
                 gap: 12px;
                 margin-bottom: 6px;
                 color: #222;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-comparison-heading.is-secondary,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison-heading.is-secondary {
+                margin-top: 14px;
             }
             #knight-lore-stage0 .knight-lore-stage2-note,
             #knight-lore-stage2-diagnostics .knight-lore-stage2-note {
@@ -201,6 +246,21 @@
             #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison tr.is-extra-dynamic td {
                 background: #f0f9ff;
                 color: #075985;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-comparison tr.is-cauldron td,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison tr.is-cauldron td {
+                background: #f0fdfa;
+                color: #115e59;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-comparison tr.is-wizard td,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison tr.is-wizard td {
+                background: #faf5ff;
+                color: #6b21a8;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-comparison tr.is-room-colour-changed td,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison tr.is-room-colour-changed td {
+                background: #fffbeb;
+                color: #92400e;
             }
             #candidate-panel {
                 width: 464px;
@@ -294,9 +354,114 @@
             const HORIZONTAL_PLANE_SCALE = 2;
             const HIGH_RES_ORIGIN = 72;
             const HIGH_RES_SCREEN_Z = 128;
+            const KNIGHT_LORE_POKE_ADDRESS_BASE = 0x0000;
+            const KNIGHT_LORE_INVENTORY_SLOT_1_ADDRESS = 23516;
+            const KNIGHT_LORE_POKE_PRESETS = {
+                easyMode: [
+                    {address: 24731, value: 209, label: 'easy mode 1'},
+                    {address: 24732, value: 238, label: 'easy mode 2'},
+                    {address: 24733, value: 63, label: 'easy mode 3'},
+                ],
+                infiniteLives: [
+                    {address: 53567, value: 201, label: 'infinite lives'},
+                ],
+                infiniteTime: [
+                    {address: 50084, value: 201, label: 'infinite time'},
+                ],
+                immunity: [
+                    {address: 47196, value: 201, label: 'immunity'},
+                ],
+            };
+            const KNIGHT_LORE_ACTIVE_POKES = [
+                // Decimal absolute addresses from the newer poke list.
+                ...KNIGHT_LORE_POKE_PRESETS.immunity,
+                ...KNIGHT_LORE_POKE_PRESETS.infiniteLives,
+            ];
 
             function hex(value, digits) {
                 return value.toString(16).toUpperCase().padStart(digits, '0');
+            }
+
+            function parsePokeByteInput(rawValue) {
+                const raw = String(rawValue || '').trim();
+                if (raw === '') return null;
+
+                let normalized = raw;
+                let radix = 10;
+                if (/^0x[0-9a-f]+$/i.test(normalized)) {
+                    normalized = normalized.slice(2);
+                    radix = 16;
+                } else if (/^&[0-9a-f]+$/i.test(normalized) || /^\$[0-9a-f]+$/i.test(normalized)) {
+                    normalized = normalized.slice(1);
+                    radix = 16;
+                } else if (/^[0-9a-f]+h$/i.test(normalized)) {
+                    normalized = normalized.slice(0, -1);
+                    radix = 16;
+                } else if (/^[0-9a-f]*[a-f][0-9a-f]*$/i.test(normalized)) {
+                    radix = 16;
+                } else if (!/^[0-9]+$/.test(normalized)) {
+                    return null;
+                }
+
+                const value = Number.parseInt(normalized, radix);
+                if (!Number.isInteger(value) || value < 0 || value > 0xff) return null;
+                return value;
+            }
+
+            function formatPokeByte(value) {
+                return '0x' + hex(value, 2) + ' (' + value + ')';
+            }
+
+            function setInventoryPokeStatus(message, state) {
+                const status = document.getElementById('inventory-poke-status');
+                if (!status) return;
+                status.textContent = message;
+                status.className = state ? 'is-' + state : '';
+            }
+
+            function bindInventoryPokeControl() {
+                const form = document.getElementById('inventory-poke-panel');
+                const input = document.getElementById('inventory-item-code');
+                const button = document.getElementById('send-inventory-item-code');
+                if (!form || !input || !button) return;
+
+                form.addEventListener('submit', event => {
+                    event.preventDefault();
+                    const value = parsePokeByteInput(input.value);
+                    if (value === null) {
+                        setInventoryPokeStatus('Enter a byte value: decimal, 0xNN, &NN, $NN, or NNh.', 'error');
+                        input.focus();
+                        return;
+                    }
+                    if (!emu || typeof emu.applyPokes !== 'function') {
+                        setInventoryPokeStatus('Emulator is not ready yet.', 'error');
+                        return;
+                    }
+
+                    button.disabled = true;
+                    setInventoryPokeStatus('Sending ' + formatPokeByte(value) + '...', '');
+                    emu.applyPokes([{
+                        address: KNIGHT_LORE_INVENTORY_SLOT_1_ADDRESS,
+                        value,
+                        label: 'inventory slot 1 item code',
+                    }]).then(payload => {
+                        const result = payload && payload.results ? payload.results[0] : null;
+                        if (!result || !result.applied) {
+                            setInventoryPokeStatus('Poke failed.', 'error');
+                            return;
+                        }
+                        const address = '0x' + hex(result.address, 4);
+                        const before = result.before === undefined ? '--' : formatPokeByte(result.before);
+                        const after = result.after === undefined ? '--' : formatPokeByte(result.after);
+                        const state = result.readbackMatches ? 'ok' : 'error';
+                        const note = result.readbackMatches ? 'Applied' : 'Readback mismatch';
+                        setInventoryPokeStatus(note + ' at ' + address + ': ' + before + ' -> ' + after, state);
+                    }).catch(error => {
+                        setInventoryPokeStatus('Poke failed: ' + error.message, 'error');
+                    }).finally(() => {
+                        button.disabled = false;
+                    });
+                });
             }
 
             function readSemanticByte(frame, address) {
@@ -734,8 +899,35 @@
                     zoom: 2,
                     sandbox: false,
                     openUrl: 'Knight Lore (1984)(Ultimate).z80',
+                    pokes: KNIGHT_LORE_ACTIVE_POKES,
+                    pokeAddressBase: KNIGHT_LORE_POKE_ADDRESS_BASE,
                     knightLoreStage0Container: document.getElementById('knight-lore-stage0'),
                     knightLoreStage0DiagnosticsContainer: document.getElementById('knight-lore-stage2-diagnostics'),
+                    onPokesApplied: payload => {
+                        console.table(payload.results.map(result => ({
+                            reason: payload.reason,
+                            label: result.label,
+                            source: result.sourceAddress === null
+                                ? '--'
+                                : '0x' + hex(result.sourceAddress, 4),
+                            base: result.addressBase === null
+                                ? '--'
+                                : '0x' + hex(result.addressBase, 4),
+                            address: result.address === null
+                                ? '--'
+                                : '0x' + hex(result.address, 4),
+                            value: result.value === null
+                                ? '--'
+                                : '0x' + hex(result.value, 2),
+                            before: result.before === undefined
+                                ? '--'
+                                : '0x' + hex(result.before, 2),
+                            after: result.after === undefined
+                                ? '--'
+                                : '0x' + hex(result.after, 2),
+                            readback: result.readbackMatches,
+                        })));
+                    },
                     onSemanticFrame: frame => {
                         semanticFrameCounter += 1;
                         frame.semanticFrameCounter = semanticFrameCounter;
@@ -756,12 +948,36 @@
                         }
                     },
                 });
+                window.knightLoreWorkbench = {
+                    get emulator() {
+                        return emu;
+                    },
+                    pokePresets: KNIGHT_LORE_POKE_PRESETS,
+                    activePokes: KNIGHT_LORE_ACTIVE_POKES,
+                    pokeAddressBase: KNIGHT_LORE_POKE_ADDRESS_BASE,
+                    inventorySlot1Address: KNIGHT_LORE_INVENTORY_SLOT_1_ADDRESS,
+                    applyPokes: pokes => emu.applyPokes(pokes),
+                    setInventorySlot1: value => emu.applyPokes([{
+                        address: KNIGHT_LORE_INVENTORY_SLOT_1_ADDRESS,
+                        value,
+                        label: 'inventory slot 1 item code',
+                    }]),
+                };
+                bindInventoryPokeControl();
             }
         </script>
     </head>
     <body class="hide-deferred-debug stage0-three" onload="startEmulator()">
         <div id="validation-workbench">
-            <div id="jsspeccy"></div>
+            <div id="emulator-column">
+                <div id="jsspeccy"></div>
+                <form id="inventory-poke-panel">
+                    <label for="inventory-item-code">Inventory 1</label>
+                    <input id="inventory-item-code" type="text" inputmode="text" autocomplete="off" placeholder="0x00">
+                    <button id="send-inventory-item-code" type="submit">Send</button>
+                    <span id="inventory-poke-status">Address 23516</span>
+                </form>
+            </div>
             <div id="knight-lore-stage0"></div>
             <div id="candidate-panel">
                 <h2>Candidate Dynamic Records</h2>
@@ -804,8 +1020,6 @@
                     <tr><td>Waiting for semantic frame...</td></tr>
                 </tbody>
             </table>
-            <h3>Stage 2 Room Diagnostics</h3>
-            <div id="knight-lore-stage2-diagnostics"></div>
             <div id="selected-bytes-section">
                 <h3>Selected Raw Bytes</h3>
                 <table>
@@ -826,6 +1040,8 @@
                     <tbody id="semantic-raw-dump"></tbody>
                 </table>
             </div>
+            <h3>Stage 2 Room Diagnostics</h3>
+            <div id="knight-lore-stage2-diagnostics"></div>
         </div>
     </body>
 </html>

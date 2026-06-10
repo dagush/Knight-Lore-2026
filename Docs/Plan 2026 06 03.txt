@@ -229,21 +229,24 @@ Analysis track:
 Three.js track:
 - Start with primitives:
   - blocks as boxes.
-  - rocks as rounded/simple low-poly shapes.
   - chests/tables as simple boxes.
-  - spike blocks as boxes with spike markers.
-  - cauldron/wizard as placeholder shapes if encountered.
+  - rocks as rounded/simple low-poly shapes. <-
+  - spike blocks as boxes with spike markers. <-
+  - cauldron/wizard as placeholder shapes if encountered. <-
 - Use debug labels or colours per object type in development mode.
 
 Verification / exit criteria:
-- Static block clusters appear in the same place as the original room.
+- Static block clusters appear in the same place as the original room. <- YES
 - Objects that disappear or move in the original stop being treated as static
-  when their dynamic records change.
-- Primitive dimensions are derived from decoded size bytes, not hand-placed.
+  when their dynamic records change. <- DONE (see comment)
+- Primitive dimensions are derived from decoded size bytes, not hand-placed. <-
+COMMENT -> working memory already stores dynamic information!!!
 
 Strict doubts:
 - Dynamic slot termination remains unconfirmed. Recommendation: parse 0x20-byte
   slots conservatively and preserve the full raw slot for each candidate.
+-> the working memory contains all this info, we DO NOT NEED to split between
+static and dynamic objects
 
 
 Stage 5 - Moving, animated, and hazardous objects
@@ -266,6 +269,7 @@ Analysis track:
   - ball vertical movement.
   - guard path movement.
   - portcullis vertical movement.
+-> Working memory already includes this!!!!
 
 Three.js track:
 - First pass: update transforms directly from dynamic records each semantic
@@ -282,6 +286,8 @@ Strict doubts:
 - Object identity across frames may be non-trivial if slot order changes.
   Recommendation: begin by treating slots as frame-local, then add identity
   tracking only when necessary.
+-> no need, solved by itself.
+
 
 Stage 6 - Textures, sprite assets, and dewarping
 ------------------------------------------------

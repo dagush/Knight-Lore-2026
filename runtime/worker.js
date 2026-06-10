@@ -12,9 +12,12 @@ let stopped = false;
 let tape = null;
 let tapeIsPlaying = false;
 let knightLoreStaticMemory = null;
+let configuredPokes = [];
 
 const SEMANTIC_MEMORY_START = 0x5ba0;
 const SEMANTIC_MEMORY_END = 0x6108;
+const KNIGHT_LORE_ITEM_MEMORY_START = 0x6ff2;
+const KNIGHT_LORE_ITEM_MEMORY_END = 0x7112;
 const KNIGHT_LORE_STATIC_MEMORY_START = 0x6248;
 const KNIGHT_LORE_STATIC_MEMORY_END = 0xaf6c;
 const KNIGHT_LORE_STATIC_RANGES = {
@@ -51,7 +54,55 @@ const loadMemoryPage = (page, data) => {
     knightLoreStaticMemory = null;
 };
 
-const loadSnapshot = (snapshot) => {
+const applyPokes = (pokes) => {
+    const results = [];
+    if (!Array.isArray(pokes) || !core) return results;
+
+    for (const poke of pokes) {
+        const address = Number(poke && poke.address);
+        const value = Number(poke && poke.value);
+        const label = poke && poke.label ? String(poke.label) : '';
+        const sourceAddress = Number(poke && poke.sourceAddress);
+        const addressBase = Number(poke && poke.addressBase);
+        if (!Number.isFinite(address) || !Number.isFinite(value)) {
+            results.push({
+                address: null,
+                value: null,
+                label,
+                sourceAddress: Number.isFinite(sourceAddress) ? sourceAddress & 0xffff : null,
+                addressBase: Number.isFinite(addressBase) ? addressBase & 0xffff : null,
+                applied: false,
+                error: 'invalid address or value',
+            });
+            continue;
+        }
+
+        const normalizedAddress = address & 0xffff;
+        const normalizedValue = value & 0xff;
+        const before = core.peek(normalizedAddress);
+        core.poke(normalizedAddress, normalizedValue);
+        const after = core.peek(normalizedAddress);
+        results.push({
+            address: normalizedAddress,
+            value: normalizedValue,
+            label,
+            sourceAddress: Number.isFinite(sourceAddress) ? sourceAddress & 0xffff : normalizedAddress,
+            addressBase: Number.isFinite(addressBase) ? addressBase & 0xffff : 0,
+            before,
+            after,
+            applied: true,
+            readbackMatches: after === normalizedValue,
+        });
+    }
+
+    if (results.length > 0) {
+        knightLoreStaticMemory = captureKnightLoreStaticMemory();
+    }
+
+    return results;
+};
+
+const loadSnapshot = (snapshot, pokes) => {
     core.setMachineType(snapshot.model);
     for (let page in snapshot.memoryPages) {
         loadMemoryPage(page, snapshot.memoryPages[page]);
@@ -73,7 +124,9 @@ const loadSnapshot = (snapshot) => {
     }
 
     core.setTStates(snapshot.tstates);
+    const pokeResults = applyPokes(pokes);
     knightLoreStaticMemory = captureKnightLoreStaticMemory();
+    return pokeResults;
 };
 
 const captureMemoryRange = (start, end) => {
@@ -97,6 +150,9 @@ const captureSemanticFrame = () => {
         memoryStart: SEMANTIC_MEMORY_START,
         memoryEnd: SEMANTIC_MEMORY_END,
         semanticMemory: captureMemoryRange(SEMANTIC_MEMORY_START, SEMANTIC_MEMORY_END),
+        itemMemoryStart: KNIGHT_LORE_ITEM_MEMORY_START,
+        itemMemoryEnd: KNIGHT_LORE_ITEM_MEMORY_END,
+        itemMemory: captureMemoryRange(KNIGHT_LORE_ITEM_MEMORY_START, KNIGHT_LORE_ITEM_MEMORY_END),
         registers: Array.from(registerPairs),
         pc: core.getPC(),
         tstates: core.getTStates(),
@@ -156,6 +212,16 @@ const trapTapeLoad = () => {
     if (success) {
         /* set carry to indicate success */
         registerPairs[0] |= 0x0001;
+        const pokeResults = applyPokes(configuredPokes);
+        if (pokeResults.length > 0) {
+            postMessage({
+                message: 'pokesApplied',
+                id: null,
+                reason: 'tape trap load',
+                pokeResults,
+                knightLoreStaticMemory,
+            });
+        }
     } else {
         /* reset carry to indicate failure */
         registerPairs[0] &= 0xfffe;
@@ -219,6 +285,10 @@ onmessage = (e) => {
 
             frameData.set(workerFrameData);
             const semanticFrame = captureSemanticFrame();
+            const semanticTransferBuffers = [
+                semanticFrame.semanticMemory.buffer,
+                semanticFrame.itemMemory.buffer,
+            ];
             if (audioLength) {
                 const leftSource = new Float32Array(core.memory.buffer, core.AUDIO_BUFFER_LEFT, audioLength);
                 const rightSource = new Float32Array(core.memory.buffer, core.AUDIO_BUFFER_RIGHT, audioLength);
@@ -232,13 +302,18 @@ onmessage = (e) => {
                     audioBufferLeft,
                     audioBufferRight,
                     semanticFrame,
-                }, [frameBuffer, audioBufferLeft, audioBufferRight]);
+                }, [
+                    frameBuffer,
+                    audioBufferLeft,
+                    audioBufferRight,
+                    ...semanticTransferBuffers,
+                ]);
             } else {
                 postMessage({
                     message: 'frameCompleted',
                     frameBuffer,
                     semanticFrame,
-                }, [frameBuffer]);
+                }, [frameBuffer, ...semanticTransferBuffers]);
             }
 
             break;
@@ -259,15 +334,27 @@ onmessage = (e) => {
             loadMemoryPage(e.data.page, e.data.data);
             break;
         case 'loadSnapshot':
-            loadSnapshot(e.data.snapshot);
+            configuredPokes = Array.isArray(e.data.pokes) ? e.data.pokes : [];
+            const pokeResults = loadSnapshot(e.data.snapshot, e.data.pokes);
             postMessage({
                 message: 'fileOpened',
                 id: e.data.id,
                 mediaType: 'snapshot',
                 knightLoreStaticMemory,
+                pokeResults,
+            });
+            break;
+        case 'applyPokes':
+            const appliedPokeResults = applyPokes(e.data.pokes);
+            postMessage({
+                message: 'pokesApplied',
+                id: e.data.id,
+                pokeResults: appliedPokeResults,
+                knightLoreStaticMemory,
             });
             break;
         case 'openTAPFile':
+            configuredPokes = Array.isArray(e.data.pokes) ? e.data.pokes : configuredPokes;
             tape = new TAPFile(e.data.data);
             tapeIsPlaying = false;
             postMessage({
@@ -277,6 +364,7 @@ onmessage = (e) => {
             });
             break;
         case 'openTZXFile':
+            configuredPokes = Array.isArray(e.data.pokes) ? e.data.pokes : configuredPokes;
             tape = new TZXFile(e.data.data);
             tapeIsPlaying = false;
             postMessage({
