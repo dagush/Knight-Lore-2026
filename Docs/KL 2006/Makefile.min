@@ -1,0 +1,23 @@
+# windos (mingw32)
+
+# agup is a cosmetic mod of allegro gui, if you [ don't want | can't ] use
+# eliminate from CFLAGS in Makefile.arquitecture
+AGUPDIR=agup-0.99.7
+AGUPLIB=$(AGUPDIR)/lib/release/libagup.a
+
+LFLAGS = -lalleg -mwindows -lopengl32 -lglu32 -lglut32
+CFLAGS = -W -Wall -O2 -mwindows -DVERSION=\"$(VERSION)\" -DNO_GETOPTLONG \
+         -DSOUND_BY_STREAM -DENABLE_LOGS -DI_HAVE_AGUP -I$(AGUPDIR) \
+	 -DDOSSEP="'\\'" 
+RM=del
+EXT=.exe
+MAKE=mingw32-make
+
+# objetos para windows las fuentes no hacen falta por que se usa makedeps.bat
+objects=sound.o v_alleg.o snaps.o graphics.o menu.o debugger.o \
+main.o z80.o disasm.o mem.o langs.o contrib/getopt.o
+
+#dos dep
+dep:
+	makedeps.bat
+

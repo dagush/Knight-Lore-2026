@@ -1,4 +1,11 @@
 import * as THREE from 'three';
+import {
+    BASIC_BLOCK_GAME_SIZE,
+    blockUnitsToSceneSize,
+    createFull3DObjectModel,
+    createRicardArchModel,
+    disposeFull3DObjectModel,
+} from './knightlore-full3d-objects.js';
 
 const ROOM_DEBUG_COLORS = [
     0x263238,
@@ -23,11 +30,22 @@ const CAMERA_FRUSTUM_RADIUS_SCALE = 1.72;
 const WALL_OPACITY = 0.3;
 const VIEWER_WALL_OPACITY = 0.07;
 const FLOOR_OPACITY = 0.18;
-const PLAYER_BODY_SIZE = {width: 7, height: 14, depth: 9};
-const PLAYER_HEAD_SIZE = {width: 6, height: 6, depth: 7};
-const PLAYER_HEAD_FALLBACK_OFFSET = new THREE.Vector3(0, 16.5, -2.5);
-const PLAYER_POINTER_OFFSET = new THREE.Vector3(0, 8, -13);
-const PLAYER_HEAD_MAX_HORIZONTAL_OFFSET = 24;
+const PLAYER_PROXY_BLOCK_UNITS = {x: 0.88, y: 0.88, z: 1.84};
+const PLAYER_BODY_SIZE = blockUnitsToSceneSize({x: 0.72, y: 0.78, z: 1.18});
+const PLAYER_HEAD_SIZE = blockUnitsToSceneSize({x: 0.56, y: 0.6, z: 0.52});
+const PLAYER_POINTER_RADIUS = 1.1;
+const PLAYER_POINTER_LENGTH = 3.4;
+const PLAYER_HEAD_FALLBACK_OFFSET = new THREE.Vector3(
+    0,
+    PLAYER_BODY_SIZE.height + PLAYER_HEAD_SIZE.height / 2,
+    -0.35
+);
+const PLAYER_POINTER_OFFSET = new THREE.Vector3(
+    0,
+    PLAYER_HEAD_FALLBACK_OFFSET.y,
+    -(PLAYER_HEAD_SIZE.depth / 2 + PLAYER_POINTER_LENGTH / 2 + 0.45)
+);
+const PLAYER_HEAD_MAX_HORIZONTAL_OFFSET = 12;
 const PLAYER_MOVEMENT_EPSILON = 0.6;
 const OBJECT_WIREFRAME_MAX_RECORDS = 96;
 const ITEM_MARKER_SIZE = 5;
@@ -153,6 +171,8 @@ const BACKGROUND_DEBUG_COLORS = {
 };
 
 const CARDINAL_SIDES = ['north', 'east', 'south', 'west'];
+const PORTCULLIS_PANEL_SIZE = blockUnitsToSceneSize({x: 2, y: 0.1, z: 2});
+const PORTCULLIS_BAR_WIDTH = blockUnitsToSceneSize({x: 0.1, y: 0.1, z: 0.1}).width;
 
 const VIEW_PRESETS = [
     {id: 'game', label: 'Upper front right (game)', direction: [1, 0.72, 1], up: [0, 1, 0]},
@@ -169,7 +189,7 @@ const VIEW_PRESETS = [
 
 const RENDER_MODES = [
     {id: 'schematic', label: 'Schematic'},
-    {id: 'full-3d', label: 'Full 3D', disabled: true},
+    {id: 'full-3d', label: 'Full 3D'},
 ];
 
 function formatHex(value, digits = 2) {
@@ -826,6 +846,8 @@ export class KnightLoreStage0Renderer {
         this.lastRoomColourProbeChange = null;
         this.lastSpecialDynamicMarkers = [];
         this.lastResolvedCollectableItemRecords = [];
+        this.lastFull3DObjectCount = 0;
+        this.lastFull3DRecognizedObjectCount = 0;
         this.spellProbeRoomId = null;
         this.lastSpellProbeRows = [];
         this.lastSpellProbeTotalHits = 0;
@@ -834,7 +856,7 @@ export class KnightLoreStage0Renderer {
         this.previousSpellProbeWindows = new Map();
         this.roomDimensions = {...DEFAULT_ROOM_DIMENSIONS};
         this.activeViewPreset = 'game';
-        this.activeRenderMode = 'schematic';
+        this.activeRenderMode = 'full-3d';
         this.handleResize = () => {
             this.resize();
             this.render();
@@ -871,9 +893,7 @@ export class KnightLoreStage0Renderer {
             button.textContent = mode.label;
             button.dataset.renderMode = mode.id;
             button.setAttribute('role', 'radio');
-            button.title = mode.disabled
-                ? 'Full 3D render will be enabled after the detailed renderer exists'
-                : mode.label + ' render mode';
+            button.title = mode.label + ' render mode';
             if (mode.disabled) {
                 button.disabled = true;
                 button.setAttribute('aria-disabled', 'true');
@@ -968,6 +988,9 @@ export class KnightLoreStage0Renderer {
         this.specialObjectWireframeMaterials = new Map();
         this.scene.add(this.objectWireframeGroup);
 
+        this.full3DObjectGroup = new THREE.Group();
+        this.scene.add(this.full3DObjectGroup);
+
         this.collectableItemGroup = new THREE.Group();
         this.collectableItemGeometry = new THREE.BoxGeometry(
             ITEM_MARKER_SIZE,
@@ -1030,7 +1053,7 @@ export class KnightLoreStage0Renderer {
         this.playerHeadMesh.position.copy(PLAYER_HEAD_FALLBACK_OFFSET);
         this.playerPointerGroup = new THREE.Group();
         this.playerPointerMesh = new THREE.Mesh(
-            new THREE.ConeGeometry(3.5, 12, 4),
+            new THREE.ConeGeometry(PLAYER_POINTER_RADIUS, PLAYER_POINTER_LENGTH, 4),
             this.playerPointerMaterial
         );
         this.playerPointerMesh.rotation.x = -Math.PI / 2;
@@ -1068,6 +1091,7 @@ export class KnightLoreStage0Renderer {
         this.updateStaticBackgroundGeometry();
         this.updateSpecialDynamicMarkers();
         this.updateObjectWireframes();
+        this.updateFull3DObjectModels();
         this.updateCollectableItemMarkers();
         this.updatePlayerProxy();
         this.updateSpellMovementProbe();
@@ -1099,10 +1123,13 @@ export class KnightLoreStage0Renderer {
             this.clearStaticBackgroundGeometry();
             this.clearSpecialDynamicMarkers();
             this.clearObjectWireframes();
+            this.clearFull3DObjectModels();
             this.clearCollectableItemMarkers();
             this.lastStaticBackgroundSignature = '';
             this.lastRoomSignature = '';
             this.lastRoomColorAttribute = null;
+            this.lastFull3DObjectCount = 0;
+            this.lastFull3DRecognizedObjectCount = 0;
             this.playerGroup.visible = false;
             this.updateDirectionOverlayLabels();
             return;
@@ -1173,6 +1200,7 @@ export class KnightLoreStage0Renderer {
         if (this.staticBackgroundGroup) this.staticBackgroundGroup.visible = visible;
         if (this.specialDynamicGroup) this.specialDynamicGroup.visible = visible;
         if (this.objectWireframeGroup) this.objectWireframeGroup.visible = visible;
+        if (this.full3DObjectGroup) this.full3DObjectGroup.visible = visible;
         if (this.collectableItemGroup) this.collectableItemGroup.visible = visible;
         if (this.spellMarkerGroup) this.spellMarkerGroup.visible = visible && this.spellMarkerMesh.visible;
         if (this.directionOverlayElement) {
@@ -1183,6 +1211,7 @@ export class KnightLoreStage0Renderer {
                 wall.visible = visible;
             });
         }
+        this.syncRenderModeVisibility();
     }
 
     updateStaticBackgroundGeometry() {
@@ -1250,6 +1279,14 @@ export class KnightLoreStage0Renderer {
         }
     }
 
+    clearFull3DObjectModels() {
+        while (this.full3DObjectGroup.children.length > 0) {
+            const child = this.full3DObjectGroup.children[0];
+            this.full3DObjectGroup.remove(child);
+            disposeFull3DObjectModel(child);
+        }
+    }
+
     clearCollectableItemMarkers() {
         while (this.collectableItemGroup.children.length > 0) {
             this.collectableItemGroup.remove(this.collectableItemGroup.children[0]);
@@ -1304,7 +1341,7 @@ export class KnightLoreStage0Renderer {
             ? this.latestFrame.knightLoreScene
             : null;
         const room = scene ? scene.room : null;
-        if (!room || !this.hasSeenGameplayRoom) {
+        if (this.activeRenderMode !== 'schematic' || !room || !this.hasSeenGameplayRoom) {
             this.clearObjectWireframes();
             return;
         }
@@ -1334,6 +1371,50 @@ export class KnightLoreStage0Renderer {
             mesh.userData.objectLabel = semantic.label;
             this.objectWireframeGroup.add(mesh);
         });
+    }
+
+    updateFull3DObjectModels() {
+        const scene = this.latestFrame && this.latestFrame.knightLoreScene
+            ? this.latestFrame.knightLoreScene
+            : null;
+        const room = scene ? scene.room : null;
+        if (this.activeRenderMode !== 'full-3d' || !room || !this.hasSeenGameplayRoom) {
+            this.lastFull3DObjectCount = 0;
+            this.lastFull3DRecognizedObjectCount = 0;
+            this.clearFull3DObjectModels();
+            return;
+        }
+
+        const candidates = dynamicObjectCandidatesForRoom(room)
+            .slice(0, OBJECT_WIREFRAME_MAX_RECORDS);
+        this.clearFull3DObjectModels();
+        this.lastFull3DObjectCount = candidates.length;
+        this.lastFull3DRecognizedObjectCount = 0;
+
+        candidates.forEach(record => {
+            const position = mapKnightLorePositionToScene(record.position, this.roomDimensions);
+            if (!position) return;
+
+            const semantic = classifyDynamicObjectRecord(record);
+            const object = createFull3DObjectModel(record.spriteId, {
+                dimensions: record.dimensions,
+                semanticCategory: semantic.category,
+            });
+            if (!object) return;
+
+            object.position.copy(position.vector);
+            object.userData.dynamicSlot = record.slotIndex;
+            object.userData.dynamicAddress = record.address;
+            object.userData.spriteId = record.spriteId;
+            object.userData.objectCategory = semantic.category;
+            object.userData.objectLabel = semantic.label;
+            if (object.userData.full3dRecognized) {
+                this.lastFull3DRecognizedObjectCount += 1;
+            }
+            this.full3DObjectGroup.add(object);
+        });
+
+        this.syncRenderModeVisibility();
     }
 
     materialForDynamicObjectSemantic(semantic) {
@@ -1715,12 +1796,23 @@ export class KnightLoreStage0Renderer {
         if (!background.side) return;
         const color = backgroundDebugColor(background);
         const group = this.createSideGroup(background.side, index);
-        const length = this.sideLength(background.side);
-        const highArch = background.category === 'high-arch' || background.category === 'high-arch-base';
-        const openingWidth = Math.max(16, Math.min(length * 0.55, highArch ? 34 : 28));
-        const openingHeight = Math.max(24, Math.min(this.roomDimensions.height * (highArch ? 0.86 : 0.7), highArch ? 54 : 44));
-        const thickness = 2.4;
-        const depth = 2.2;
+        if (!withBars) {
+            const arch = createRicardArchModel({
+                color,
+                opacity: background.category === 'tree-arch' ? 0.88 : 0.9,
+                outline: true,
+            });
+            arch.userData.backgroundId = background.id;
+            arch.userData.backgroundCategory = background.category;
+            group.add(arch);
+            this.staticBackgroundGroup.add(group);
+            return;
+        }
+
+        const openingWidth = PORTCULLIS_PANEL_SIZE.width;
+        const openingHeight = PORTCULLIS_PANEL_SIZE.height;
+        const thickness = PORTCULLIS_BAR_WIDTH;
+        const depth = PORTCULLIS_PANEL_SIZE.depth;
 
         const left = this.createDebugBox(thickness, openingHeight, depth, color, 0.82);
         left.position.set(-openingWidth / 2, openingHeight / 2, 0);
@@ -1743,11 +1835,16 @@ export class KnightLoreStage0Renderer {
         if (withBars) {
             const barCount = 5;
             for (let i = 0; i < barCount; i++) {
-                const x = -openingWidth * 0.36 + (openingWidth * 0.72) * (i / (barCount - 1));
-                const bar = this.createDebugBox(0.9, openingHeight * 0.86, depth + 0.7, color, 0.9);
-                bar.position.set(x, openingHeight * 0.43, 0.4);
+                const x = -openingWidth * 0.38 + (openingWidth * 0.76) * (i / (barCount - 1));
+                const bar = this.createDebugBox(PORTCULLIS_BAR_WIDTH, openingHeight * 0.94, depth + 0.2, color, 0.9);
+                bar.position.set(x, openingHeight * 0.47, 0.35);
                 group.add(bar);
             }
+            [0.22, 0.78].forEach(heightFactor => {
+                const rail = this.createDebugBox(openingWidth, PORTCULLIS_BAR_WIDTH, depth + 0.25, color, 0.9);
+                rail.position.set(0, openingHeight * heightFactor, 0.38);
+                group.add(rail);
+            });
         }
 
         this.staticBackgroundGroup.add(group);
@@ -1995,6 +2092,19 @@ export class KnightLoreStage0Renderer {
                 this.roomDimensions.depth,
             ].join(', '),
             'Render mode: ' + this.activeRenderMode,
+            'Full 3D basic block game XYZ: ' + [
+                BASIC_BLOCK_GAME_SIZE.x,
+                BASIC_BLOCK_GAME_SIZE.y,
+                BASIC_BLOCK_GAME_SIZE.z,
+            ].join(', '),
+            'Full 3D object proxies: ' + this.lastFull3DRecognizedObjectCount
+                + '/' + this.lastFull3DObjectCount
+                + ' recognized',
+            'Player proxy block XYZ: ' + [
+                PLAYER_PROXY_BLOCK_UNITS.x,
+                PLAYER_PROXY_BLOCK_UNITS.y,
+                PLAYER_PROXY_BLOCK_UNITS.z,
+            ].join(', '),
             'Geometry size source: ' + roomDimensionSource(room),
             'Static cache: ' + (cache && cache.byteLength ? cache.byteLength + ' bytes' : 'not loaded'),
             staticLine,
@@ -2650,7 +2760,23 @@ export class KnightLoreStage0Renderer {
             button.classList.toggle('is-active', isActive);
             button.setAttribute('aria-checked', isActive ? 'true' : 'false');
         });
+        if (this.latestFrame) {
+            this.updateObjectWireframes();
+            this.updateFull3DObjectModels();
+        }
+        this.updateSummary();
+        this.syncRenderModeVisibility();
         this.render();
+    }
+
+    syncRenderModeVisibility() {
+        const roomVisible = Boolean(this.floorMesh && this.floorMesh.visible);
+        if (this.objectWireframeGroup) {
+            this.objectWireframeGroup.visible = roomVisible && this.activeRenderMode === 'schematic';
+        }
+        if (this.full3DObjectGroup) {
+            this.full3DObjectGroup.visible = roomVisible && this.activeRenderMode === 'full-3d';
+        }
     }
 
     setViewPreset(id) {
@@ -2761,6 +2887,7 @@ export class KnightLoreStage0Renderer {
         this.specialObjectWireframeMaterials.forEach(material => {
             material.dispose();
         });
+        this.clearFull3DObjectModels();
         this.clearCollectableItemMarkers();
         this.collectableItemGeometry.dispose();
         this.collectableItemMaterials.forEach(material => {

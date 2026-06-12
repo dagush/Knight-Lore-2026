@@ -674,3 +674,108 @@ Strict caveats:
 - We still do not use original textures or faithful object meshes.
 - The Spectrum screen-memory colour cycling is intentionally not represented in the semantic 3D view.
 - Dormant probe code remains because it may be useful for a later visual-effects or screen-memory investigation stage.
+
+## 2026-06-11 - Full 3D Start, Ricard Geometry Recovery, and Block-Unit Models
+
+Context:
+
+- Started the last large project stage: moving from the validated schematic renderer toward a real Full 3D view.
+- Wrote the new Full 3D planning document as `Docs/Plan 2026 06 11.txt`.
+- The plan separates the reliable schematic/diagnostic mode from a new Full 3D mode that can gradually replace proxy geometry with richer models.
+- Gustavo found Ricard's 2006 implementation files under `Docs/KL 2006`.
+
+Ricard 2006 code inspection:
+
+- Inspected `Docs/KL 2006/main.c`.
+- Confirmed that Ricard's arches, blocks, player proxy, and several simple objects were stored as procedural OpenGL/GLUT calls inside the emulator code.
+- Confirmed that the small `*_*_*.c` files are wall texture fragments and should wait for the wall texture/dewarping stage.
+- Decision: translate the simple procedural OpenGL recipes directly into Three.js builders rather than exporting mesh files.
+- Added the new runtime module `runtime/knightlore-full3d-objects.js` for reusable Full 3D object builders.
+
+Full 3D mode:
+
+- Enabled the `Full 3D` render mode button.
+- Made Full 3D the default mode while preserving `Schematic` as a switchable diagnostic view.
+- Kept the same semantic data path: decoded working memory and static backgrounds still drive placement.
+- Separated schematic wireframes from Full 3D object meshes so only the active mode rebuilds its dynamic object geometry.
+- Added diagnostic summary lines for:
+  - Full 3D block size;
+  - recognized Full 3D object proxies;
+  - player proxy block size.
+
+Block-unit convention:
+
+- Adopted block units as the practical modelling language:
+  - 1 block unit = game XYZ `8 x 8 x 6`;
+  - Three.js remains Y-up internally, so game Z maps to scene Y.
+- Corrected the basic block proportions after visual testing:
+  - game XYZ `8 x 8 x 6`;
+  - scene width/depth/height `8 x 8 x 6`.
+- Added block-unit helpers in `runtime/knightlore-full3d-objects.js`.
+
+Player proxy:
+
+- Rescaled the main character proxy to be slightly smaller than `1 x 1 x 2` block units.
+- Current proxy size is `0.88 x 0.88 x 1.84` block units.
+- Reduced the orientation pointer to a small cone placed near the character's head.
+- Kept the already-validated human/wolf state colouring and direction logic.
+
+Static openings and doors:
+
+- Replaced the old broad rectangular door placeholders with a Ricard-derived brick arch model.
+- Translated Ricard's `dibujar_arco` / `ladrillo_arco` geometry into Three.js geometry.
+- The new arch is approximately:
+  - slightly under 2 blocks wide;
+  - around 3.3 block-heights tall;
+  - built from mirrored small brick/prism pieces.
+- Left portcullises as a separate barred model rather than forcing them through the arch path.
+
+Dynamic and simple object models:
+
+- Added first-class Full 3D models for common working-memory sprites:
+  - normal blocks as `1 x 1 x 1` block-unit prisms;
+  - rocks (`0x06`) as grey one-block-unit spheres;
+  - balls (`0xB2`, `0xB3`, `0xB6`, `0xB7`) as one-block-unit green spheres;
+  - portcullises (`0x08`, `0x09`) as barred panels;
+  - pushable tables (`0x54`) as simple tabletop-and-leg models;
+  - pushable chests (`0x55`) as simple box/lid/band/latch models.
+- Portcullis proportions:
+  - `2 x 0.1 x 2` or `0.1 x 2 x 2` block units;
+  - orientation is inferred from the dynamic record dimensions when possible.
+- Gustavo observed that moving portcullises changed sprite id while moving upward.
+- Added sprite `0x09` to the portcullis family so it keeps the barred model instead of falling back to the generic thin box.
+- Table/chest proportions were iterated by visual testing:
+  - validated direction first;
+  - then shortened their long axis.
+- Current proportions:
+  - tables: `1 x 1.5 x 1` block units;
+  - chests: `1.5 x 1 x 1` block units.
+
+Cache and workbench:
+
+- Continued using `static/knight-lore-workbench.html` as the canonical workbench file.
+- Bumped the workbench bundle cache key after each visible frontend/runtime change.
+- Final cache key for this session: `knightlore-stage6-20260612a`.
+
+Verification:
+
+- Rebuilt with webpack after runtime changes.
+- Ran the emulator regression test after the main changes.
+- Used browser smoke tests against the local workbench to verify:
+  - the new cache keys load;
+  - Full 3D starts active;
+  - mode switching remains available;
+  - no page errors appear during initial load.
+- Gustavo performed the key visual validation while playing:
+  - basic block proportions;
+  - player size and cone placement;
+  - portcullis behaviour while moving;
+  - table/chest orientation and length.
+
+Strict caveats:
+
+- Full 3D is now active and useful, but still proxy-based.
+- Object models are deliberately simple Three.js primitives, not final textured assets.
+- Ricard's wall texture fragments are not yet translated or dewarped.
+- Arches use Ricard-derived geometry, but they do not yet use original wall/door textures.
+- Unknown dynamic sprites still fall back to conservative outline geometry.

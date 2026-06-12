@@ -1,0 +1,611 @@
+import * as THREE from 'three';
+
+export const RICARD_OPENGL_UNIT = 8;
+export const BLOCK_UNIT_GAME_SIZE = Object.freeze({
+    x: RICARD_OPENGL_UNIT,
+    y: RICARD_OPENGL_UNIT,
+    z: RICARD_OPENGL_UNIT * 0.75,
+});
+
+export function blockUnitsToGameSize(units = {}) {
+    return {
+        x: (units.x === undefined ? 1 : units.x) * BLOCK_UNIT_GAME_SIZE.x,
+        y: (units.y === undefined ? 1 : units.y) * BLOCK_UNIT_GAME_SIZE.y,
+        z: (units.z === undefined ? 1 : units.z) * BLOCK_UNIT_GAME_SIZE.z,
+    };
+}
+
+export function blockUnitsToSceneSize(units = {}) {
+    const gameSize = blockUnitsToGameSize(units);
+    return {
+        width: gameSize.x,
+        height: gameSize.z,
+        depth: gameSize.y,
+    };
+}
+
+export const BASIC_BLOCK_GAME_SIZE = Object.freeze(blockUnitsToGameSize());
+export const BASIC_BLOCK_SCENE_SIZE = Object.freeze(blockUnitsToSceneSize());
+
+const RICARD_ARCH_X_SCALE = 0.94;
+const BLOCK_SPRITE_IDS = new Set([0x07, 0x36, 0x37, 0x3e, 0x5b, 0x8f]);
+const ROCK_SPRITE_IDS = new Set([0x06]);
+const PORTCULLIS_SPRITE_IDS = new Set([0x08, 0x09]);
+const TABLE_SPRITE_IDS = new Set([0x54]);
+const CHEST_SPRITE_IDS = new Set([0x55]);
+const YELLOW_RED_FIRE_SPRITE_IDS = new Set([0xb5, 0xb1, 0x57]);
+const RED_YELLOW_FIRE_SPRITE_IDS = new Set([0xb4, 0xb0, 0x56]);
+const GREEN_BALL_SPRITE_IDS = new Set([0xb2, 0xb3, 0xb6, 0xb7]);
+
+function normalizedSpriteId(spriteId) {
+    return Number.isFinite(spriteId) ? spriteId & 0xff : null;
+}
+
+function material(color, opacity = 1) {
+    return new THREE.MeshBasicMaterial({
+        color,
+        transparent: opacity < 1,
+        opacity,
+    });
+}
+
+function edgeMaterial(color = 0x111827, opacity = 0.72) {
+    return new THREE.LineBasicMaterial({
+        color,
+        transparent: opacity < 1,
+        opacity,
+    });
+}
+
+function sceneSizeFromRecordDimensions(dimensions, fallback = BASIC_BLOCK_SCENE_SIZE) {
+    const width = dimensions && Number.isFinite(dimensions.x)
+        ? Math.max(1, dimensions.x / 2)
+        : fallback.width;
+    const depth = dimensions && Number.isFinite(dimensions.y)
+        ? Math.max(1, dimensions.y / 2)
+        : fallback.depth;
+    const height = dimensions && Number.isFinite(dimensions.z)
+        ? Math.max(1, dimensions.z / 2)
+        : fallback.height;
+
+    return {width, height, depth};
+}
+
+function addBoxEdges(group, geometry, position, color = 0x111827, opacity = 0.72) {
+    const edges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(geometry),
+        edgeMaterial(color, opacity)
+    );
+    edges.position.copy(position);
+    group.add(edges);
+}
+
+function addBoxMesh(group, size, color, opacity, position = new THREE.Vector3()) {
+    const geometry = new THREE.BoxGeometry(size.width, size.height, size.depth);
+    const mesh = new THREE.Mesh(geometry, material(color, opacity));
+    mesh.position.copy(position);
+    group.add(mesh);
+    return mesh;
+}
+
+function addBoxWithEdges(group, size, color, opacity, position, edgeColor = 0x111827, edgeOpacity = 0.56) {
+    const mesh = addBoxMesh(group, size, color, opacity, position);
+    addBoxEdges(group, mesh.geometry, mesh.position, edgeColor, edgeOpacity);
+    return mesh;
+}
+
+function transformRicardArchPoint(point, mirrored = false) {
+    const sourceX = mirrored ? (2 - point.x) : point.x;
+    const sourceZ = mirrored ? (-point.z - 0.5) : point.z;
+
+    return new THREE.Vector3(
+        (sourceX - 1) * RICARD_OPENGL_UNIT * RICARD_ARCH_X_SCALE,
+        point.y * RICARD_OPENGL_UNIT,
+        sourceZ * RICARD_OPENGL_UNIT
+    );
+}
+
+function createRicardBrickGeometry(points, mirrored = false) {
+    const vertices = points.map(point => transformRicardArchPoint(point, mirrored));
+    const quads = [
+        [0, 1, 2, 3],
+        [0, 4, 7, 1],
+        [3, 2, 6, 5],
+        [4, 5, 6, 7],
+        [1, 7, 6, 2],
+        [0, 3, 5, 4],
+    ];
+    const positions = [];
+
+    quads.forEach(quad => {
+        const triangles = [
+            [quad[0], quad[1], quad[2]],
+            [quad[0], quad[2], quad[3]],
+        ];
+        triangles.forEach(triangle => {
+            triangle.forEach(index => {
+                const vertex = vertices[index];
+                positions.push(vertex.x, vertex.y, vertex.z);
+            });
+        });
+    });
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    return geometry;
+}
+
+function offsetRicardBrick(points, offset) {
+    return points.map(point => ({
+        x: point.x + (offset.x || 0),
+        y: point.y + (offset.y || 0),
+        z: point.z + (offset.z || 0),
+    }));
+}
+
+function ricardBrickPoints(values) {
+    const points = [];
+    for (let index = 0; index < values.length; index += 3) {
+        points.push({
+            x: values[index],
+            y: values[index + 1],
+            z: values[index + 2],
+        });
+    }
+    return points;
+}
+
+const RICARD_ARCH_BRICKS = [
+    {offset: {y: 0}, points: ricardBrickPoints([
+        0, 0, 0, 0, 0, -0.5, 0.25, 0, -0.5, 0.25, 0, 0,
+        0, 0.4, 0, 0.25, 0.4, 0, 0.25, 0.4, -0.5, 0, 0.4, -0.5,
+    ])},
+    {offset: {y: 0.4}, points: ricardBrickPoints([
+        0, 0, 0, 0, 0, -0.5, 0.25, 0, -0.5, 0.25, 0, 0,
+        0, 0.4, 0, 0.25, 0.4, 0, 0.25, 0.4, -0.5, 0, 0.4, -0.5,
+    ])},
+    {offset: {y: 0.8}, points: ricardBrickPoints([
+        0, 0, 0, 0, 0, -0.5, 0.25, 0, -0.5, 0.25, 0, 0,
+        0, 0.4, 0, 0.25, 0.4, 0, 0.25, 0.4, -0.5, 0, 0.4, -0.5,
+    ])},
+    {offset: {y: 1.2}, points: ricardBrickPoints([
+        0, 0, 0, 0, 0, -0.5, 0.25, 0, -0.5, 0.25, 0, 0,
+        0.075, 0.4, 0, 0.325, 0.3, 0, 0.325, 0.3, -0.5, 0.075, 0.4, -0.5,
+    ])},
+    {offset: {y: 1.6}, points: ricardBrickPoints([
+        0.075, 0, 0, 0.075, 0, -0.5, 0.325, -0.1, -0.5, 0.325, -0.1, 0,
+        0.2, 0.35, 0, 0.425, 0.2, 0, 0.425, 0.2, -0.5, 0.2, 0.35, -0.5,
+    ])},
+    {offset: {y: 1.8}, points: ricardBrickPoints([
+        0.2, 0.15, 0, 0.2, 0.15, -0.5, 0.425, 0, -0.5, 0.425, 0, 0,
+        0.5, 0.5, 0, 0.6, 0.3, 0, 0.6, 0.3, -0.5, 0.5, 0.5, -0.5,
+    ])},
+    {offset: {y: 1.8}, points: ricardBrickPoints([
+        0.5, 0.5, 0, 0.5, 0.5, -0.5, 0.6, 0.3, -0.5, 0.6, 0.3, 0,
+        1.0, 0.7, 0, 1.0, 0.5, 0, 1.0, 0.5, -0.5, 1.0, 0.7, -0.5,
+    ])},
+];
+
+export function createRicardArchModel({
+    color = 0xfacc15,
+    opacity = 0.9,
+    outline = true,
+} = {}) {
+    const group = new THREE.Group();
+    const brickMaterial = material(color, opacity);
+    const lineMaterial = edgeMaterial(0x111827, 0.6);
+
+    [false, true].forEach(mirrored => {
+        RICARD_ARCH_BRICKS.forEach(brick => {
+            const points = offsetRicardBrick(brick.points, brick.offset);
+            const geometry = createRicardBrickGeometry(points, mirrored);
+            const mesh = new THREE.Mesh(geometry, brickMaterial);
+            group.add(mesh);
+
+            if (outline) {
+                group.add(new THREE.LineSegments(
+                    new THREE.EdgesGeometry(geometry),
+                    lineMaterial
+                ));
+            }
+        });
+    });
+
+    group.userData.full3dKind = 'ricard-arch';
+    group.userData.full3dBlockSize = {
+        x: 2 * RICARD_ARCH_X_SCALE,
+        y: 0.5,
+        z: 2.5 * RICARD_OPENGL_UNIT / BLOCK_UNIT_GAME_SIZE.z,
+    };
+    group.userData.full3dSource = 'Ricard dibujar_arco/ladrillo_arco brick arch';
+    return group;
+}
+
+export function createBrickPrismModel({
+    width = BASIC_BLOCK_SCENE_SIZE.width,
+    height = BASIC_BLOCK_SCENE_SIZE.height,
+    depth = BASIC_BLOCK_SCENE_SIZE.depth,
+    color = 0xb8b8b8,
+    opacity = 0.94,
+    outline = true,
+} = {}) {
+    const group = new THREE.Group();
+    const geometry = new THREE.BoxGeometry(width, height, depth);
+    const mesh = new THREE.Mesh(geometry, material(color, opacity));
+    mesh.position.y = height / 2;
+    group.add(mesh);
+
+    if (outline) {
+        addBoxEdges(group, geometry, mesh.position, 0x1f2937, 0.7);
+    }
+
+    group.userData.full3dKind = 'brick-prism';
+    group.userData.full3dSize = {width, height, depth};
+    return group;
+}
+
+function createSpikeModel() {
+    const group = new THREE.Group();
+    const height = RICARD_OPENGL_UNIT * 0.4;
+    const radius = RICARD_OPENGL_UNIT * 0.2;
+    const mesh = new THREE.Mesh(
+        new THREE.ConeGeometry(radius, height, 24),
+        material(0x2563eb, 0.96)
+    );
+    mesh.position.y = height / 2;
+    group.add(mesh);
+    group.userData.full3dKind = 'spikes';
+    return group;
+}
+
+function createSphereModel(kind, color, radius) {
+    const group = new THREE.Group();
+    const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(radius, 18, 12),
+        material(color, 0.96)
+    );
+    mesh.position.y = Math.max(radius, RICARD_OPENGL_UNIT * 0.125);
+    group.add(mesh);
+    group.userData.full3dKind = kind;
+    return group;
+}
+
+function createBlockUnitSphereModel(kind, color) {
+    const size = blockUnitsToSceneSize({x: 1, y: 1, z: 1});
+    const group = new THREE.Group();
+    const mesh = new THREE.Mesh(
+        new THREE.SphereGeometry(0.5, 24, 16),
+        material(color, 0.96)
+    );
+    mesh.scale.set(size.width, size.height, size.depth);
+    mesh.position.y = size.height / 2;
+    group.add(mesh);
+    group.userData.full3dKind = kind;
+    group.userData.full3dBlockSize = {x: 1, y: 1, z: 1};
+    return group;
+}
+
+function portcullisBlockUnitsFromRecord(dimensions) {
+    if (
+        dimensions
+        && Number.isFinite(dimensions.x)
+        && Number.isFinite(dimensions.y)
+        && dimensions.x < dimensions.y
+    ) {
+        return {x: 0.1, y: 2, z: 2};
+    }
+
+    return {x: 2, y: 0.1, z: 2};
+}
+
+function createPortcullisModel(dimensions) {
+    const blockUnits = portcullisBlockUnitsFromRecord(dimensions);
+    const size = blockUnitsToSceneSize(blockUnits);
+    const group = new THREE.Group();
+    const color = 0x38bdf8;
+    const opacity = 0.88;
+    const thinX = blockUnits.x < blockUnits.y;
+    const barThickness = blockUnitsToSceneSize({x: 0.1, y: 0.1, z: 0.1}).width;
+    const verticalBarSize = thinX
+        ? {width: size.width, height: size.height * 0.94, depth: barThickness}
+        : {width: barThickness, height: size.height * 0.94, depth: size.depth};
+    const railSize = thinX
+        ? {width: size.width, height: barThickness, depth: size.depth}
+        : {width: size.width, height: barThickness, depth: size.depth};
+
+    for (let i = 0; i < 5; i++) {
+        const t = i / 4 - 0.5;
+        const position = new THREE.Vector3(
+            thinX ? 0 : t * size.width * 0.76,
+            verticalBarSize.height / 2,
+            thinX ? t * size.depth * 0.76 : 0
+        );
+        addBoxMesh(group, verticalBarSize, color, opacity, position);
+    }
+
+    [0.22, 0.78].forEach(heightFactor => {
+        const rail = addBoxMesh(group, railSize, color, opacity);
+        rail.position.y = size.height * heightFactor;
+    });
+
+    group.userData.full3dKind = 'portcullis';
+    group.userData.full3dBlockSize = blockUnits;
+    return group;
+}
+
+function createPushableTableModel() {
+    const group = new THREE.Group();
+    const topSize = blockUnitsToSceneSize({x: 0.94, y: 1.42, z: 0.16});
+    const legSize = blockUnitsToSceneSize({x: 0.12, y: 0.12, z: 0.78});
+    const footSize = blockUnitsToSceneSize({x: 0.18, y: 0.18, z: 0.06});
+    const topCenterY = legSize.height + topSize.height / 2;
+    const legInset = blockUnitsToSceneSize({x: 0.34, y: 0.59});
+    const wood = 0x8b5a2b;
+    const darkWood = 0x5f3a1d;
+
+    addBoxWithEdges(
+        group,
+        topSize,
+        wood,
+        0.96,
+        new THREE.Vector3(0, topCenterY, 0)
+    );
+
+    [-1, 1].forEach(xSign => {
+        [-1, 1].forEach(zSign => {
+            addBoxWithEdges(
+                group,
+                legSize,
+                darkWood,
+                0.96,
+                new THREE.Vector3(
+                    xSign * legInset.width,
+                    legSize.height / 2,
+                    zSign * legInset.depth
+                )
+            );
+            addBoxWithEdges(
+                group,
+                footSize,
+                darkWood,
+                0.9,
+                new THREE.Vector3(
+                    xSign * legInset.width,
+                    footSize.height / 2,
+                    zSign * legInset.depth
+                ),
+                0x111827,
+                0.42
+            );
+        });
+    });
+
+    group.userData.full3dKind = 'pushable-table';
+    group.userData.full3dBlockSize = {x: 1, y: 1.5, z: 1};
+    return group;
+}
+
+function createPushableChestModel() {
+    const group = new THREE.Group();
+    const bodySize = blockUnitsToSceneSize({x: 1.42, y: 0.86, z: 0.72});
+    const lidSize = blockUnitsToSceneSize({x: 1.48, y: 0.9, z: 0.22});
+    const bandSize = blockUnitsToSceneSize({x: 0.12, y: 0.94, z: 0.22});
+    const latchSize = blockUnitsToSceneSize({x: 0.2, y: 0.04, z: 0.16});
+    const bodyColor = 0x9a6a35;
+    const lidColor = 0x7c4a24;
+    const metalColor = 0xd4af37;
+
+    addBoxWithEdges(
+        group,
+        bodySize,
+        bodyColor,
+        0.96,
+        new THREE.Vector3(0, bodySize.height / 2, 0)
+    );
+
+    addBoxWithEdges(
+        group,
+        lidSize,
+        lidColor,
+        0.96,
+        new THREE.Vector3(0, bodySize.height + lidSize.height / 2, 0)
+    );
+
+    [-0.4, 0.4].forEach(xBlockOffset => {
+        addBoxWithEdges(
+            group,
+            bandSize,
+            metalColor,
+            0.92,
+            new THREE.Vector3(
+                blockUnitsToSceneSize({x: xBlockOffset}).width,
+                bodySize.height + lidSize.height * 0.45,
+                0
+            ),
+            0x4b5563,
+            0.38
+        );
+    });
+
+    addBoxWithEdges(
+        group,
+        latchSize,
+        metalColor,
+        0.96,
+        new THREE.Vector3(
+            0,
+            bodySize.height * 0.62,
+            bodySize.depth / 2 + latchSize.depth / 2 + 0.04
+        ),
+        0x4b5563,
+        0.44
+    );
+
+    group.userData.full3dKind = 'pushable-chest';
+    group.userData.full3dBlockSize = {x: 1.5, y: 1, z: 1};
+    return group;
+}
+
+function createFireModel(firstColor, secondColor) {
+    const group = new THREE.Group();
+    const radius = RICARD_OPENGL_UNIT * 0.1;
+    const y = Math.max(radius, RICARD_OPENGL_UNIT * 0.125);
+    const first = new THREE.Mesh(
+        new THREE.SphereGeometry(radius, 12, 8),
+        material(firstColor, 0.96)
+    );
+    first.position.y = y;
+    group.add(first);
+
+    const second = new THREE.Mesh(
+        new THREE.SphereGeometry(radius, 12, 8),
+        material(secondColor, 0.96)
+    );
+    second.position.set(0, y, RICARD_OPENGL_UNIT * 0.1);
+    group.add(second);
+    group.userData.full3dKind = 'fire';
+    return group;
+}
+
+function createGargoyleProxyModel() {
+    const group = new THREE.Group();
+    const radius = RICARD_OPENGL_UNIT * 0.1;
+    const offsets = [
+        [0, 0, 0],
+        [0, RICARD_OPENGL_UNIT * 0.1, 0],
+        [0, RICARD_OPENGL_UNIT * 0.2, 0],
+        [RICARD_OPENGL_UNIT * 0.1, RICARD_OPENGL_UNIT * 0.3, 0],
+    ];
+
+    offsets.forEach(offset => {
+        const mesh = new THREE.Mesh(
+            new THREE.SphereGeometry(radius, 12, 8),
+            material(0x86a886, 0.96)
+        );
+        mesh.position.set(offset[0], RICARD_OPENGL_UNIT * 0.125 + offset[1], offset[2]);
+        group.add(mesh);
+    });
+
+    group.userData.full3dKind = 'gargoyle-proxy';
+    return group;
+}
+
+function createFallbackOutlineModel(dimensions) {
+    const size = sceneSizeFromRecordDimensions(dimensions, BASIC_BLOCK_SCENE_SIZE);
+    const group = new THREE.Group();
+    const geometry = new THREE.BoxGeometry(size.width, size.height, size.depth);
+    const edges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(geometry),
+        edgeMaterial(0xe5e7eb, 0.72)
+    );
+    edges.position.y = size.height / 2;
+    group.add(edges);
+    group.userData.full3dKind = 'fallback-outline';
+    group.userData.full3dSize = size;
+    return group;
+}
+
+export function createFull3DObjectModel(spriteId, opts = {}) {
+    const id = normalizedSpriteId(spriteId);
+    if (id === null) return null;
+
+    if (BLOCK_SPRITE_IDS.has(id)) {
+        const object = createBrickPrismModel({
+            ...BASIC_BLOCK_SCENE_SIZE,
+            color: 0xb8b8b8,
+            opacity: 0.94,
+            outline: true,
+        });
+        object.userData.full3dKind = 'block';
+        object.userData.full3dGameSize = BASIC_BLOCK_GAME_SIZE;
+        object.userData.full3dRecognized = true;
+        object.userData.full3dSource = 'Ricard dibujarObjeto block brick, mapped to game XYZ 8 x 8 x 6';
+        return object;
+    }
+
+    if (id === 0x17) {
+        const object = createSpikeModel();
+        object.userData.full3dRecognized = true;
+        return object;
+    }
+
+    if (ROCK_SPRITE_IDS.has(id)) {
+        const object = createBlockUnitSphereModel('rock', 0x8a8f98);
+        object.userData.full3dRecognized = true;
+        object.userData.full3dSource = 'rock sprite, 1 block-unit diameter sphere';
+        return object;
+    }
+
+    if (PORTCULLIS_SPRITE_IDS.has(id)) {
+        const object = createPortcullisModel(opts.dimensions);
+        object.userData.full3dRecognized = true;
+        object.userData.full3dSource = 'portcullis sprite, 2 x 0.1 x 2 or 0.1 x 2 x 2 block units';
+        return object;
+    }
+
+    if (TABLE_SPRITE_IDS.has(id)) {
+        const object = createPushableTableModel();
+        object.userData.full3dRecognized = true;
+        object.userData.full3dSource = 'pushable table sprite, one-block footprint model';
+        return object;
+    }
+
+    if (CHEST_SPRITE_IDS.has(id)) {
+        const object = createPushableChestModel();
+        object.userData.full3dRecognized = true;
+        object.userData.full3dSource = 'pushable chest sprite, one-block footprint model';
+        return object;
+    }
+
+    if (id === 0x3f) {
+        const object = createSphereModel('spike-ball', 0xef4444, RICARD_OPENGL_UNIT * 0.25);
+        object.userData.full3dRecognized = true;
+        return object;
+    }
+
+    if (YELLOW_RED_FIRE_SPRITE_IDS.has(id)) {
+        const object = createFireModel(0xfacc15, 0xef4444);
+        object.userData.full3dRecognized = true;
+        return object;
+    }
+
+    if (RED_YELLOW_FIRE_SPRITE_IDS.has(id)) {
+        const object = createFireModel(0xef4444, 0xfacc15);
+        object.userData.full3dRecognized = true;
+        return object;
+    }
+
+    if (GREEN_BALL_SPRITE_IDS.has(id)) {
+        const object = createBlockUnitSphereModel('green-ball', 0x22c55e);
+        object.userData.full3dRecognized = true;
+        object.userData.full3dSource = 'ball sprite, 1 block-unit diameter sphere';
+        return object;
+    }
+
+    if (id === 0x16) {
+        const object = createGargoyleProxyModel();
+        object.userData.full3dRecognized = true;
+        return object;
+    }
+
+    const fallback = createFallbackOutlineModel(opts.dimensions);
+    fallback.userData.full3dRecognized = false;
+    return fallback;
+}
+
+export function disposeFull3DObjectModel(object) {
+    if (!object) return;
+
+    object.traverse(child => {
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) {
+            const materials = Array.isArray(child.material)
+                ? child.material
+                : [child.material];
+            materials.forEach(childMaterial => childMaterial.dispose());
+        }
+    });
+}
