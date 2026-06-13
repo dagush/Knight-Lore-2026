@@ -779,3 +779,125 @@ Strict caveats:
 - Ricard's wall texture fragments are not yet translated or dewarped.
 - Arches use Ricard-derived geometry, but they do not yet use original wall/door textures.
 - Unknown dynamic sprites still fall back to conservative outline geometry.
+
+## 2026-06-13 - Sprite Texture Extraction, Texture-Space Warping, and Full 3D Background Fixes
+
+Context:
+
+- Continued the final Full 3D stage after the first Ricard-geometry/object-model pass.
+- The focus shifted from simple geometry to original Knight Lore wall/background texture recovery.
+- The work used Ricard's document, especially the wall/background section, plus the old `Docs/KL 2006` code as guidance.
+- The small `*_*_*.c` texture fragments were inspected as historical reference, but the chosen path was to extract textures directly from the game data instead of translating those C files as fixed assets.
+
+Sprite texture extraction:
+
+- Implemented a clean sprite texture extraction pipeline from static memory:
+  - sprite pointer table: `0x7112..0x7289`;
+  - sprite data: `0x728A..0xAF6B`.
+- Added decoding for sprite image/mask bitplanes and generated canvas/Three.js textures from the decoded data.
+- Added a sprite preview canvas on the workbench so decoded textures can be checked visually before applying them to 3D geometry.
+- Corrected the early mistake where some previews and rendered textures used the mask plane instead of the colour/image plane.
+- Confirmed the important background sprite ids:
+  - stone/brick wall sprites: `0x0A..0x0F`;
+  - wooden entrance sprites: `0x04`, `0x05`;
+  - wooden wall sprites: `0x80..0x82`.
+
+Texture warping/dewarping decision:
+
+- First attempted a Ricard-inspired geometric dewarp path by modifying the 3D wall rectangles.
+- Rejected that approach after visual testing because the 3D rectangles themselves were already correctly placed; the problem was the perspective/isometric distortion baked into the original 2D texture pixels.
+- Switched to a texture-space correction:
+  - keep the 3D quads aligned to the decoded static records;
+  - transform the decoded sprite canvas before it becomes a Three.js texture.
+- The final working technique is an isometric slope correction based on the Knight Lore screen-space slope:
+  - use the `arctan(1/2)` / approximately `26.565` degree relationship as the conceptual model;
+  - shear the decoded texture in canvas space to undo the original isometric tilt;
+  - use per-sprite-family slope direction because not all wall/wood sprites lean the same way.
+- Added vertical flip handling for the wall and wooden sprites where the static data stores them upside down relative to the desired 3D texture.
+- Added a binary threshold pass after correction.
+- Gustavo found threshold value `141` to give the best result, so the temporary threshold slider was removed and `141` became the fixed value.
+- Kept the Dewarp checkbox because it remains useful for comparison, but removed the old dewarp-scale slider because the projective/geometric dewarp path is no longer the chosen technique.
+
+Textured Full 3D backgrounds:
+
+- Applied the corrected textures to the Full 3D room walls using textured quads.
+- Preserved the room geometry placement while adjusting texture registration only.
+- Added left/right and vertical registration fixes where visual comparison showed systematic offsets:
+  - sprite `0x0A` receives extra left registration;
+  - raised `0x0F` wall pieces are lowered when stacked above another wall element.
+- Removed the old Full 3D room shell/grid and switched Full 3D to a pure black background to better match the original game look.
+- Kept the room/grid/floor helpers available in Schematic mode.
+- Added wooden wall/entrance texture support:
+  - wooden sprites use a `16 x 48` aspect-ratio model;
+  - wooden quads are normalized to tile side-by-side without holes;
+  - wooden room exits are drawn as wooden textured entrances, not as stone arches.
+
+Renderer separation:
+
+- Split the background rendering into separate modules:
+  - `runtime/knightlore-schematic-renderer.js`;
+  - `runtime/knightlore-full3d-renderer.js`.
+- This was done after a Full 3D texture pass accidentally affected the Schematic view.
+- Recovered the Schematic renderer so it remains a stable diagnostic view rather than sharing fragile Full 3D assumptions.
+- Restored Schematic-only aids:
+  - translucent room floor and walls;
+  - room edges;
+  - gridded ground reference;
+  - north/east/south/west floor labels.
+- Hid the direction labels in Full 3D so the game-like view is cleaner.
+
+Arches, high arches, and tree rooms:
+
+- Made normal and high stone arches use the actual Spectrum room ink colour instead of the earlier debug palette.
+- Corrected high arches so they use the decoded static-record height rather than being placed on the ground.
+- Moved arch geometry slightly outward so the player proxy does not visibly intersect the arch.
+- Fixed the Schematic renderer so high arches are also elevated there.
+- Confirmed that tree/wood rooms should not receive stone arch geometry.
+- Stopped drawing Ricard stone arches for `tree-arch` backgrounds; these are now represented by the wooden entrance textures.
+- Treated high-arch bases `0x16` and `0x17` as decoded static records rather than as special arch frames.
+- The base records use sprite `0x07`, so they now go through the same Full 3D object factory as normal blocks and render as the regular brick block model.
+
+Full 3D view polish:
+
+- Kept Full 3D as the default mode.
+- Increased the Full 3D orthographic framing by about 20 percent.
+- Lowered the Full 3D camera target so the scene sits higher and more centrally in the 3D pane.
+- Left the Schematic camera/framing unchanged.
+- Kept the gridded ground reference in Schematic only.
+- Removed the north/east/south/west overlay signs from Full 3D.
+
+Other Full 3D fixes and small refinements:
+
+- Continued to use the validated working-memory/static-background paths rather than introducing independent asset placement.
+- Kept Full 3D texture placement based on decoded static records, with dynamic object geometry still driven by working memory.
+- Preserved portcullis and dynamic-object behaviour while changing the background renderer.
+- Kept cauldron, wizard, spell, item, and ending-screen support from the Stage 4/5 work intact.
+- Repeatedly bumped the workbench cache key after browser-facing changes so local refreshes loaded the latest bundle.
+
+Verification:
+
+- Rebuilt with webpack after the implementation passes.
+- Ran `git diff --check` after edits.
+- Ran the emulator CPU regression test after runtime changes.
+- Used browser smoke tests against `http://127.0.0.1:8000/` to verify:
+  - fresh cache keys loaded;
+  - Full 3D remains selectable/default;
+  - Schematic remains selectable;
+  - no browser console errors appeared;
+  - the Schematic/Full 3D visibility split works.
+- Gustavo performed the important visual validation:
+  - decoded sprite previews;
+  - corrected wall texture orientation;
+  - wall texture thresholding;
+  - wooden texture identification;
+  - high arch placement;
+  - Schematic view recovery;
+  - Full 3D framing and label cleanup.
+
+Strict caveats:
+
+- The texture-space correction is a practical, visually validated isometric-slope correction, not yet a mathematically complete reconstruction of Ricard's old OpenGL wall pipeline.
+- Some texture registration values are still empirical and may need per-room or per-sprite tuning when more rooms are checked.
+- Wooden rooms now have the right texture families and no stone arches, but broad gameplay coverage is still needed.
+- The Full 3D view is much closer to the target, but many dynamic enemies and decorative objects still use simple proxy geometry.
+- Schematic mode remains the trusted diagnostic view; Full 3D is now the main visual target, but it should still be judged against Schematic and the emulator when new object classes are added.

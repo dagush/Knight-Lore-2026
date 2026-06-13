@@ -57,3 +57,24 @@ item locations in working memory (only 2):
 wizard: 0x9F and 0x9E -> head
         0x90 ~ 0x95 -> body
 
+guard: 0x90~0x95 is the lower part of the back of the guard and
+       0x96 is the head, while
+       0x97 is the front head, and
+       0x98~0x9D are the front view of the legs.
+0x08 0x09 portcullis
+0x10~0x15 legs ????
+0x16 gargoyle
+0xB4~0xB5 fire
+0x07 is a regular block,
+0x52 is a ghost (mark this for possible later usage), and
+0x54 is a table,
+0x78~0x7F explosion? Bubbles?
+0x83~0x85 bubbles ???
+0x8D cauldron, 0x8E cauldron "contents"
+0xA5~0xA7 repelling spell
+
+0x02 and 0x03 are the arches,
+0x0A to 0x0F: brick walls
+
+0x04 and 0x05: wooden entrance
+0x80 to 0x82: wooden walls

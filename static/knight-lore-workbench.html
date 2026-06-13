@@ -2,7 +2,7 @@
 <html>
     <head>
         <title>JSSpeccy v3</title>
-        <script src="jsspeccy/jsspeccy.js?v=knightlore-stage6-20260612a"></script>
+        <script src="jsspeccy/jsspeccy.js?v=knightlore-stage6-20260613x"></script>
         <style>
             body {
                 background-color: #444;
@@ -129,6 +129,33 @@
                 cursor: not-allowed;
                 opacity: 0.65;
             }
+            #knight-lore-stage0 .knight-lore-dewarp-scale-control {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                min-width: 82px;
+                height: 24px;
+                padding: 0 6px;
+                border: 1px solid #aaa;
+                border-radius: 4px;
+                background: #f7f7f7;
+                color: #333;
+                font: 12px Arial, Helvetica, sans-serif;
+                box-sizing: border-box;
+            }
+            #knight-lore-stage0 .knight-lore-dewarp-scale-control.is-disabled {
+                color: #666;
+            }
+            #knight-lore-stage0 .knight-lore-dewarp-toggle {
+                display: inline-flex;
+                align-items: center;
+                gap: 3px;
+                white-space: nowrap;
+                cursor: pointer;
+            }
+            #knight-lore-stage0 .knight-lore-dewarp-toggle input {
+                margin: 0;
+            }
             #knight-lore-stage0 .knight-lore-stage0-canvas {
                 position: relative;
                 width: 640px;
@@ -203,6 +230,17 @@
                 background: #fff7ed;
                 color: #9a3412;
                 border: 1px solid #fed7aa;
+            }
+            #knight-lore-stage0 .knight-lore-sprite-texture-preview,
+            #knight-lore-stage2-diagnostics .knight-lore-sprite-texture-preview {
+                display: block;
+                max-width: 100%;
+                height: auto;
+                margin: 8px 0 10px;
+                border: 1px solid #94a3b8;
+                background: #0f172a;
+                image-rendering: pixelated;
+                box-sizing: border-box;
             }
             #knight-lore-stage0 .knight-lore-stage2-comparison table,
             #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison table {

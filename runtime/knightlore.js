@@ -6,6 +6,11 @@ export const KNIGHT_LORE_MEMORY = {
     itemTableStart: 0x6ff2,
     itemTableEnd: 0x7112,
     itemRecordSize: 9,
+    spritePointerTableStart: 0x7112,
+    spritePointerTableEnd: 0x728a,
+    spriteDataStart: 0x728a,
+    spriteDataEnd: 0xaf6c,
+    spritePointerEntrySize: 2,
     dynamicRoomStart: 0x5c88,
     dynamicVisualSlotSize: 0x20,
     dynamicVisualRecordSize: 8,
@@ -48,10 +53,16 @@ const STATIC_TABLES = {
     backgroundPointerStart: 0x6ce2,
     backgroundPointerEnd: 0x6d12,
     backgroundDataStart: 0x6d12,
-    backgroundDataEnd: 0x6f2f,
+    backgroundDataEnd: 0x6ff2,
+    spritePointerStart: 0x7112,
+    spritePointerEnd: 0x728a,
+    spriteDataStart: 0x728a,
+    spriteDataEnd: 0xaf6c,
 };
 
 const PLAYER_DIRECTION_AXIS_THRESHOLD = 0x4c;
+const SPRITE_TEXTURE_CATALOG_CACHE = new WeakMap();
+const SPRITE_TEXTURE_PREVIEW_ROWS = 8;
 
 const BACKGROUND_TYPES = {
     0x00: {label: 'arch north', category: 'arch', side: 'north'},
@@ -179,10 +190,8 @@ function flagBits(value) {
     return bits;
 }
 
-function getStaticMemory(frame) {
-    if (!frame || !frame.knightLoreStaticMemory) return null;
-
-    const cache = frame.knightLoreStaticMemory;
+function normalizeStaticMemoryCache(cache) {
+    if (!cache) return null;
     const memory = cache.staticMemory || cache.memory || null;
     if (!memory) return null;
 
@@ -194,6 +203,11 @@ function getStaticMemory(frame) {
             (cache.memoryStart || KNIGHT_LORE_MEMORY.staticStart) + memory.length
         ),
     };
+}
+
+function getStaticMemory(frame) {
+    if (!frame || !frame.knightLoreStaticMemory) return null;
+    return normalizeStaticMemoryCache(frame.knightLoreStaticMemory);
 }
 
 function readStaticByte(staticMemory, address) {
@@ -211,6 +225,272 @@ function readStaticWord(staticMemory, address) {
     const hi = readStaticByte(staticMemory, address + 1);
     if (lo === null || hi === null) return null;
     return lo | (hi << 8);
+}
+
+function countByteBits(value) {
+    let byte = value & 0xff;
+    let count = 0;
+    while (byte) {
+        byte &= byte - 1;
+        count += 1;
+    }
+    return count;
+}
+
+function countBits(bytes) {
+    if (!bytes) return 0;
+    return bytes.reduce((total, value) => total + countByteBits(value), 0);
+}
+
+function makeSpriteTexturePreviewRows(imageBytes, maskBytes, widthBytes, heightPixels) {
+    const rows = [];
+    const rowCount = Math.min(heightPixels, SPRITE_TEXTURE_PREVIEW_ROWS);
+    for (let y = 0; y < rowCount; y++) {
+        let row = '';
+        for (let byteX = 0; byteX < widthBytes; byteX++) {
+            const byteIndex = y * widthBytes + byteX;
+            const imageByte = imageBytes[byteIndex] || 0;
+            const maskByte = maskBytes[byteIndex] || 0;
+            for (let bit = 0; bit < 8; bit++) {
+                const bitMask = 0x80 >> bit;
+                if (imageByte & bitMask) {
+                    row += '#';
+                } else if (maskByte & bitMask) {
+                    row += '.';
+                } else {
+                    row += ' ';
+                }
+            }
+        }
+        rows.push(row);
+    }
+    return rows;
+}
+
+function invalidSpriteTexture(spriteId, pointerAddress, warning, extra = {}) {
+    return {
+        id: spriteId,
+        pointerAddress,
+        dataAddress: null,
+        dataEndAddress: null,
+        valid: false,
+        warning,
+        ...extra,
+    };
+}
+
+function decodeSpriteTexture(staticMemory, spriteId) {
+    if (!Number.isInteger(spriteId) || spriteId < 0) {
+        return invalidSpriteTexture(spriteId, null, 'sprite id is not a non-negative integer');
+    }
+
+    const pointerAddress = STATIC_TABLES.spritePointerStart
+        + spriteId * KNIGHT_LORE_MEMORY.spritePointerEntrySize;
+    if (
+        pointerAddress < STATIC_TABLES.spritePointerStart
+        || pointerAddress + 1 >= STATIC_TABLES.spritePointerEnd
+    ) {
+        return invalidSpriteTexture(spriteId, pointerAddress, 'sprite pointer is outside the documented table');
+    }
+
+    const dataAddress = readStaticWord(staticMemory, pointerAddress);
+    if (
+        dataAddress === null
+        || dataAddress < STATIC_TABLES.spriteDataStart
+        || dataAddress + 1 >= STATIC_TABLES.spriteDataEnd
+    ) {
+        return invalidSpriteTexture(
+            spriteId,
+            pointerAddress,
+            'sprite data pointer is outside the documented data range',
+            {dataAddress}
+        );
+    }
+
+    const widthBytes = readStaticByte(staticMemory, dataAddress);
+    const heightPixels = readStaticByte(staticMemory, dataAddress + 1);
+    if (
+        widthBytes === null
+        || heightPixels === null
+        || widthBytes <= 0
+        || heightPixels <= 0
+    ) {
+        return invalidSpriteTexture(
+            spriteId,
+            pointerAddress,
+            'sprite width/height header is empty or unreadable',
+            {dataAddress, widthBytes, heightPixels}
+        );
+    }
+
+    const planeByteCount = widthBytes * heightPixels;
+    const dataByteLength = 2 + planeByteCount * 2;
+    const dataEndAddress = dataAddress + dataByteLength;
+    if (dataEndAddress > STATIC_TABLES.spriteDataEnd) {
+        return invalidSpriteTexture(
+            spriteId,
+            pointerAddress,
+            'sprite image/mask bytes overrun the documented data range',
+            {dataAddress, dataEndAddress, widthBytes, heightPixels, planeByteCount}
+        );
+    }
+
+    const imageBytes = new Uint8Array(planeByteCount);
+    const maskBytes = new Uint8Array(planeByteCount);
+    for (let index = 0; index < planeByteCount; index++) {
+        const maskByte = readStaticByte(staticMemory, dataAddress + 2 + index * 2);
+        const imageByte = readStaticByte(staticMemory, dataAddress + 3 + index * 2);
+        if (imageByte === null || maskByte === null) {
+            return invalidSpriteTexture(
+                spriteId,
+                pointerAddress,
+                'sprite image/mask byte is unreadable',
+                {dataAddress, dataEndAddress, widthBytes, heightPixels, planeByteCount}
+            );
+        }
+        imageBytes[index] = imageByte;
+        maskBytes[index] = maskByte;
+    }
+
+    return {
+        id: spriteId,
+        pointerAddress,
+        dataAddress,
+        dataEndAddress,
+        valid: true,
+        widthBytes,
+        widthPixels: widthBytes * 8,
+        heightPixels,
+        planeByteCount,
+        imageByteCount: planeByteCount,
+        maskByteCount: planeByteCount,
+        dataByteLength,
+        imageBitCount: countBits(imageBytes),
+        maskBitCount: countBits(maskBytes),
+        bitOrder: 'msb-left',
+        imageBytes,
+        maskBytes,
+        previewRows: makeSpriteTexturePreviewRows(
+            imageBytes,
+            maskBytes,
+            widthBytes,
+            heightPixels
+        ),
+    };
+}
+
+function summarizeSpriteTexture(texture) {
+    if (!texture) return null;
+    return {
+        id: texture.id,
+        pointerAddress: texture.pointerAddress,
+        dataAddress: texture.dataAddress,
+        dataEndAddress: texture.dataEndAddress,
+        valid: Boolean(texture.valid),
+        warning: texture.warning || null,
+        widthBytes: texture.widthBytes || null,
+        widthPixels: texture.widthPixels || null,
+        heightPixels: texture.heightPixels || null,
+        imageByteCount: texture.imageByteCount || 0,
+        maskByteCount: texture.maskByteCount || 0,
+        dataByteLength: texture.dataByteLength || 0,
+        imageBitCount: texture.imageBitCount || 0,
+        maskBitCount: texture.maskBitCount || 0,
+        bitOrder: texture.bitOrder || 'msb-left',
+        previewRows: texture.previewRows || [],
+    };
+}
+
+function buildSpriteTextureCatalog(staticMemory) {
+    const spriteCount = Math.floor(
+        (STATIC_TABLES.spritePointerEnd - STATIC_TABLES.spritePointerStart)
+        / KNIGHT_LORE_MEMORY.spritePointerEntrySize
+    );
+    const texturesById = new Map();
+    const summaries = [];
+    const invalidSummaries = [];
+
+    for (let spriteId = 0; spriteId < spriteCount; spriteId++) {
+        const texture = decodeSpriteTexture(staticMemory, spriteId);
+        texturesById.set(spriteId, texture);
+        const summary = summarizeSpriteTexture(texture);
+        if (texture.valid) {
+            summaries.push(summary);
+        } else {
+            invalidSummaries.push(summary);
+        }
+    }
+
+    return {
+        pointerTableStart: STATIC_TABLES.spritePointerStart,
+        pointerTableEnd: STATIC_TABLES.spritePointerEnd,
+        spriteDataStart: STATIC_TABLES.spriteDataStart,
+        spriteDataEnd: STATIC_TABLES.spriteDataEnd,
+        spriteCount,
+        decodedCount: summaries.length,
+        invalidCount: invalidSummaries.length,
+        texturesById,
+        summaries,
+        invalidSummaries,
+        source: 'sprite pointer table 0x7112..0x7289 and sprite data 0x728A..0xAF6B',
+    };
+}
+
+function getSpriteTextureCatalog(staticMemory) {
+    if (!staticMemory || !staticMemory.memory) return null;
+    if (SPRITE_TEXTURE_CATALOG_CACHE.has(staticMemory.memory)) {
+        return SPRITE_TEXTURE_CATALOG_CACHE.get(staticMemory.memory);
+    }
+
+    const catalog = buildSpriteTextureCatalog(staticMemory);
+    SPRITE_TEXTURE_CATALOG_CACHE.set(staticMemory.memory, catalog);
+    return catalog;
+}
+
+function staticMemoryFromSource(source) {
+    return normalizeStaticMemoryCache(source) || getStaticMemory(source);
+}
+
+export function getKnightLoreSpriteTextureCatalog(source) {
+    const staticMemory = staticMemoryFromSource(source);
+    return getSpriteTextureCatalog(staticMemory);
+}
+
+export function getKnightLoreSpriteTexture(source, spriteId) {
+    const catalog = getKnightLoreSpriteTextureCatalog(source);
+    if (!catalog) return null;
+    return catalog.texturesById.get(spriteId) || null;
+}
+
+export function expandKnightLoreSpriteTexture(texture) {
+    if (!texture || !texture.valid) return null;
+    const widthPixels = texture.widthPixels;
+    const heightPixels = texture.heightPixels;
+    const imagePixels = new Uint8Array(widthPixels * heightPixels);
+    const maskPixels = new Uint8Array(widthPixels * heightPixels);
+
+    for (let y = 0; y < heightPixels; y++) {
+        for (let byteX = 0; byteX < texture.widthBytes; byteX++) {
+            const byteIndex = y * texture.widthBytes + byteX;
+            const imageByte = texture.imageBytes[byteIndex];
+            const maskByte = texture.maskBytes[byteIndex];
+            for (let bit = 0; bit < 8; bit++) {
+                const bitMask = 0x80 >> bit;
+                const pixelIndex = y * widthPixels + byteX * 8 + bit;
+                imagePixels[pixelIndex] = (imageByte & bitMask) ? 1 : 0;
+                maskPixels[pixelIndex] = (maskByte & bitMask) ? 1 : 0;
+            }
+        }
+    }
+
+    return {
+        id: texture.id,
+        widthPixels,
+        heightPixels,
+        bitOrder: texture.bitOrder,
+        imagePixels,
+        maskPixels,
+    };
 }
 
 function parseOrientation(memory, memoryStart) {
@@ -728,6 +1008,79 @@ function parseStaticCacheSummary(frame) {
     };
 }
 
+function addSpriteTextureId(ids, value) {
+    if (Number.isInteger(value) && value >= 0) {
+        ids.add(value);
+    }
+}
+
+function collectCurrentSceneSpriteIds(staticLocation, dynamicVisualRecords, collectableItems) {
+    const ids = new Set();
+
+    if (staticLocation && Array.isArray(staticLocation.backgrounds)) {
+        staticLocation.backgrounds.forEach(background => {
+            (background.records || []).forEach(record => addSpriteTextureId(ids, record.spriteId));
+        });
+    }
+
+    (dynamicVisualRecords || []).forEach(record => addSpriteTextureId(ids, record.spriteId));
+
+    if (collectableItems && Array.isArray(collectableItems.currentRoomRecords)) {
+        collectableItems.currentRoomRecords.forEach(record => {
+            addSpriteTextureId(ids, record.spriteId);
+            addSpriteTextureId(ids, record.graphicId);
+        });
+    }
+
+    return [...ids].sort((a, b) => a - b);
+}
+
+function buildSpriteTextureSceneSummary(
+    frame,
+    staticLocation,
+    dynamicVisualRecords,
+    collectableItems
+) {
+    const staticMemory = getStaticMemory(frame);
+    if (!staticMemory) {
+        return {
+            available: false,
+            source: 'static memory not available',
+            referencedSpriteIds: [],
+            referencedTextures: [],
+        };
+    }
+
+    const catalog = getSpriteTextureCatalog(staticMemory);
+    const referencedSpriteIds = collectCurrentSceneSpriteIds(
+        staticLocation,
+        dynamicVisualRecords,
+        collectableItems
+    );
+    const referencedTextures = referencedSpriteIds
+        .map(spriteId => summarizeSpriteTexture(catalog.texturesById.get(spriteId)))
+        .filter(Boolean);
+    const invalidReferencedCount = referencedTextures
+        .filter(texture => !texture.valid)
+        .length;
+
+    return {
+        available: true,
+        source: catalog.source,
+        pointerTableStart: catalog.pointerTableStart,
+        pointerTableEnd: catalog.pointerTableEnd,
+        spriteDataStart: catalog.spriteDataStart,
+        spriteDataEnd: catalog.spriteDataEnd,
+        spriteCount: catalog.spriteCount,
+        decodedCount: catalog.decodedCount,
+        invalidCount: catalog.invalidCount,
+        referencedCount: referencedSpriteIds.length,
+        invalidReferencedCount,
+        referencedSpriteIds,
+        referencedTextures,
+    };
+}
+
 function getLiveItemMemory(frame) {
     if (!frame || !frame.itemMemory) return null;
     return {
@@ -925,6 +1278,7 @@ export function extractKnightLoreScene(source, opts = {}) {
         y: KNIGHT_LORE_MEMORY.player.headY,
         z: KNIGHT_LORE_MEMORY.player.headZ,
     });
+    const orientation = parseOrientation(memory, memoryStart);
     const dynamicVisualRecords = parseDynamicVisualRecords(memory, memoryStart, opts);
     const backgroundComparison = compareStaticBackgroundsToDynamic(staticLocation, dynamicVisualRecords);
     const collectableItems = parseCollectableItems(
@@ -932,6 +1286,12 @@ export function extractKnightLoreScene(source, opts = {}) {
         room,
         memory,
         memoryStart
+    );
+    const spriteTextures = buildSpriteTextureSceneSummary(
+        frame,
+        staticLocation,
+        dynamicVisualRecords,
+        collectableItems
     );
 
     return {
@@ -960,7 +1320,7 @@ export function extractKnightLoreScene(source, opts = {}) {
                 overlayPosition: headOverlayPosition,
                 renderPositionSource: '0x5C29,0x5C2A,0x5C2B',
             },
-            orientation: parseOrientation(memory, memoryStart),
+            orientation,
         },
         room: {
             ...room,
@@ -982,9 +1342,11 @@ export function extractKnightLoreScene(source, opts = {}) {
             dynamicVisualRecords,
             sprites: dynamicVisualRecords,
             collectableItems,
+            spriteTextures,
         },
         objects: dynamicVisualRecords,
         collectableItems,
+        spriteTextures,
         raw: {
             selectedBytes: parseSelectedBytes(memory, memoryStart),
         },

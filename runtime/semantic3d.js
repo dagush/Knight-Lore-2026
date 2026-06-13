@@ -1,11 +1,24 @@
 import * as THREE from 'three';
 import {
+    expandKnightLoreSpriteTexture,
+    getKnightLoreSpriteTexture,
+} from './knightlore.js';
+import {
+    KnightLoreFull3DBackgroundRenderer,
+    SPRITE_TEXTURE_VERTICAL_FLIP_IDS,
+} from './knightlore-full3d-renderer.js';
+import {
+    createBinaryWallTextureCanvas,
+    createIsometricSlopeCorrectedCanvas,
+    isometricTextureShearSlopeForSpriteId,
+} from './knightlore-wall-dewarp.js';
+import {
     BASIC_BLOCK_GAME_SIZE,
     blockUnitsToSceneSize,
     createFull3DObjectModel,
-    createRicardArchModel,
     disposeFull3DObjectModel,
 } from './knightlore-full3d-objects.js';
+import { KnightLoreSchematicBackgroundRenderer } from './knightlore-schematic-renderer.js';
 
 const ROOM_DEBUG_COLORS = [
     0x263238,
@@ -17,6 +30,26 @@ const ROOM_DEBUG_COLORS = [
     0xca8a04,
     0xe5e7eb,
 ];
+const SPECTRUM_NORMAL_COLORS = [
+    0x000000,
+    0x0000d7,
+    0xd70000,
+    0xd700d7,
+    0x00d700,
+    0x00d7d7,
+    0xd7d700,
+    0xd7d7d7,
+];
+const SPECTRUM_BRIGHT_COLORS = [
+    0x000000,
+    0x0000ff,
+    0xff0000,
+    0xff00ff,
+    0x00ff00,
+    0x00ffff,
+    0xffff00,
+    0xffffff,
+];
 
 const DEFAULT_ROOM_DIMENSIONS = {
     width: 64,
@@ -27,6 +60,8 @@ const DISPLAY_ROOM_HEIGHT = 64;
 const CAD_CAMERA_DISTANCE = 500;
 const MIN_CAMERA_FRUSTUM_HEIGHT = 96;
 const CAMERA_FRUSTUM_RADIUS_SCALE = 1.72;
+const FULL_3D_CAMERA_ZOOM = 1.2;
+const FULL_3D_CAMERA_TARGET_HEIGHT_FACTOR = 0.34;
 const WALL_OPACITY = 0.3;
 const VIEWER_WALL_OPACITY = 0.07;
 const FLOOR_OPACITY = 0.18;
@@ -48,6 +83,8 @@ const PLAYER_POINTER_OFFSET = new THREE.Vector3(
 const PLAYER_HEAD_MAX_HORIZONTAL_OFFSET = 12;
 const PLAYER_MOVEMENT_EPSILON = 0.6;
 const OBJECT_WIREFRAME_MAX_RECORDS = 96;
+const SCHEMATIC_PORTCULLIS_SPRITE_IDS = new Set([0x08, 0x09]);
+const SCHEMATIC_PORTCULLIS_PANEL_SIZE = blockUnitsToSceneSize({x: 2, y: 0.1, z: 2});
 const ITEM_MARKER_SIZE = 5;
 const SPELL_MARKER_SIZE = 6;
 const CAULDRON_ROOM_ID = 0x88;
@@ -109,6 +146,7 @@ const SPECIAL_DYNAMIC_OBJECTS_BY_OBJECT_ID = {
 };
 const SPECIAL_OBJECT_WIREFRAME_COLORS = {
     cauldron: 0x14b8a6,
+    portcullis: 0x38bdf8,
     wizard: 0xa855f7,
 };
 const LIVE_FIXED_BACKGROUND_IDS = new Set([0x12]);
@@ -157,23 +195,6 @@ const FLOOR_DIRECTION_LABELS = [
 ];
 const DIRECTION_LABEL_EDGE_INSET = 10;
 
-const BACKGROUND_DEBUG_COLORS = {
-    arch: 0xfacc15,
-    'tree-arch': 0x22c55e,
-    portcullis: 0x38bdf8,
-    'wall-preset': 0x94a3b8,
-    'tree-room': 0x16a34a,
-    'tree-filler': 0x84cc16,
-    'fixed-background': 0xf97316,
-    'high-arch': 0xf59e0b,
-    'high-arch-base': 0xd97706,
-    'unknown-background': 0xf472b6,
-};
-
-const CARDINAL_SIDES = ['north', 'east', 'south', 'west'];
-const PORTCULLIS_PANEL_SIZE = blockUnitsToSceneSize({x: 2, y: 0.1, z: 2});
-const PORTCULLIS_BAR_WIDTH = blockUnitsToSceneSize({x: 0.1, y: 0.1, z: 0.1}).width;
-
 const VIEW_PRESETS = [
     {id: 'game', label: 'Upper front right (game)', direction: [1, 0.72, 1], up: [0, 1, 0]},
     {id: 'top', label: 'Top', direction: [0, 1, 0], up: [0, 0, -1]},
@@ -191,7 +212,38 @@ const RENDER_MODES = [
     {id: 'schematic', label: 'Schematic'},
     {id: 'full-3d', label: 'Full 3D'},
 ];
-
+const DEFAULT_WALL_TEXTURE_DEWARP_ENABLED = true;
+const DEFAULT_WALL_TEXTURE_DEWARP_SCALE_PERCENT = 100;
+const DEFAULT_WALL_TEXTURE_BINARY_THRESHOLD = 141;
+const SPRITE_TEXTURE_PREVIEW_MAX_ROWS = 48;
+const SPRITE_TEXTURE_PREVIEW_COLUMNS = 1;
+const SPRITE_TEXTURE_PREVIEW_TILE_WIDTH = 620;
+const SPRITE_TEXTURE_PREVIEW_TILE_HEIGHT = 232;
+const SPRITE_TEXTURE_PREVIEW_MARGIN = 12;
+const SPRITE_TEXTURE_PREVIEW_LABEL_HEIGHT = 34;
+const SPRITE_TEXTURE_PREVIEW_IMAGE_MAX_WIDTH = 174;
+const SPRITE_TEXTURE_PREVIEW_IMAGE_MAX_HEIGHT = 168;
+const SPRITE_TEXTURE_PREVIEW_GROUPS = [
+    {
+        label: 'wall sprites',
+        ids: [
+            0x0a, 0x0b, 0x0c, 0x0d,
+            0x0e, 0x0f,
+        ],
+    },
+    {
+        label: 'wooden entrances',
+        ids: [
+            0x04, 0x05,
+        ],
+    },
+    {
+        label: 'wooden walls',
+        ids: [
+            0x80, 0x81, 0x82,
+        ],
+    },
+];
 function formatHex(value, digits = 2) {
     if (value === null || value === undefined) return '--';
     return '0x' + value.toString(16).toUpperCase().padStart(digits, '0');
@@ -274,6 +326,32 @@ function roomColorFromAttribute(value) {
     return ROOM_DEBUG_COLORS[value & 0x07];
 }
 
+function spectrumPaletteForAttribute(value) {
+    return value & 0x40 ? SPECTRUM_BRIGHT_COLORS : SPECTRUM_NORMAL_COLORS;
+}
+
+function spectrumInkColorFromAttribute(value) {
+    if (value === null || value === undefined) return 0x00d7d7;
+    return spectrumPaletteForAttribute(value)[value & 0x07];
+}
+
+function spectrumPaperColorFromAttribute(value) {
+    if (value === null || value === undefined) return 0x000000;
+    return spectrumPaletteForAttribute(value)[(value >> 3) & 0x07];
+}
+
+function rgbFromHexColor(color) {
+    return {
+        r: (color >> 16) & 0xff,
+        g: (color >> 8) & 0xff,
+        b: color & 0xff,
+    };
+}
+
+function cssColorFromHex(color) {
+    return '#' + color.toString(16).toUpperCase().padStart(6, '0');
+}
+
 function formatRecordAddress(value) {
     return formatHex(value, 4);
 }
@@ -307,6 +385,18 @@ function formatMismatchList(mismatches) {
 function formatByteList(bytes) {
     if (!bytes || bytes.length === 0) return '--';
     return bytes.map(value => formatHex(value, 2)).join(' ');
+}
+
+function formatAddressRange(start, endExclusive) {
+    if (
+        start === null
+        || start === undefined
+        || endExclusive === null
+        || endExclusive === undefined
+    ) {
+        return '--';
+    }
+    return formatRecordAddress(start) + '..' + formatRecordAddress(endExclusive - 1);
 }
 
 function formatAddressList(addresses) {
@@ -503,6 +593,93 @@ function dynamicObjectCandidatesForRoom(room) {
     ));
 }
 
+function isSchematicPortcullisRecord(record) {
+    return Boolean(
+        record
+        && Number.isFinite(record.spriteId)
+        && SCHEMATIC_PORTCULLIS_SPRITE_IDS.has(record.spriteId & 0xff)
+    );
+}
+
+function compactDynamicRecordSignature(record) {
+    if (!record) return 'none';
+    const position = record.position || {};
+    const dimensions = record.dimensions || {};
+    return [
+        record.address,
+        record.spriteId,
+        position.x,
+        position.y,
+        position.z,
+        dimensions.x,
+        dimensions.y,
+        dimensions.z,
+        record.flags,
+    ].join(',');
+}
+
+function liveSchematicBackgroundSignature(comparison) {
+    if (!comparison || !Array.isArray(comparison.rows)) return 'no-live-backgrounds';
+    return comparison.rows
+        .filter(row => (
+            row.staticSource
+            && row.staticSource.category === 'portcullis'
+            && row.dynamicRecord
+        ))
+        .map(row => row.index + '=' + compactDynamicRecordSignature(row.dynamicRecord))
+        .join('|') || 'no-live-portcullises';
+}
+
+function schematicBackgroundsWithLivePortcullises(backgrounds, comparison) {
+    if (!Array.isArray(backgrounds) || !comparison || !Array.isArray(comparison.rows)) {
+        return backgrounds || [];
+    }
+
+    const liveRecordsByStaticKey = new Map();
+    comparison.rows.forEach(row => {
+        if (
+            !row.staticSource
+            || row.staticSource.category !== 'portcullis'
+            || !row.dynamicRecord
+        ) {
+            return;
+        }
+
+        liveRecordsByStaticKey.set(
+            row.staticSource.backgroundIndex + ':' + row.staticSource.recordIndex,
+            row.dynamicRecord
+        );
+    });
+
+    if (liveRecordsByStaticKey.size === 0) return backgrounds;
+
+    return backgrounds.map((background, backgroundIndex) => {
+        if (background.category !== 'portcullis' || !Array.isArray(background.records)) {
+            return background;
+        }
+
+        let changed = false;
+        const records = background.records.map((record, recordIndex) => {
+            const liveRecord = liveRecordsByStaticKey.get(backgroundIndex + ':' + recordIndex);
+            if (!liveRecord) return record;
+            changed = true;
+            return {
+                ...record,
+                address: Number.isFinite(liveRecord.address) ? liveRecord.address : record.address,
+                spriteId: Number.isFinite(liveRecord.spriteId) ? liveRecord.spriteId : record.spriteId,
+                position: liveRecord.position || record.position,
+                dimensions: liveRecord.dimensions || record.dimensions,
+                flags: Number.isFinite(liveRecord.flags)
+                    ? {raw: liveRecord.flags}
+                    : record.flags,
+                liveDynamicSource: true,
+            };
+        });
+
+        return changed ? {...background, records} : background;
+    });
+}
+
 function findDynamicObjectIdHits(record) {
     if (!record || !Array.isArray(record.slotRaw)) return [];
     const hits = [];
@@ -564,6 +741,15 @@ function classifyDynamicObjectRecord(record) {
             source: objectIdHits
                 .map(hit => hit.source + ' at +' + formatHex(hit.offset, 2))
                 .join('; '),
+            objectIdHits,
+        };
+    }
+
+    if (isSchematicPortcullisRecord(record)) {
+        return {
+            label: 'portcullis',
+            category: 'portcullis',
+            source: 'working-memory visual slot sprite 0x08/0x09',
             objectIdHits,
         };
     }
@@ -788,19 +974,6 @@ function createBackgroundMaterial(color, opacity = 0.78) {
     });
 }
 
-function backgroundDebugColor(background) {
-    return BACKGROUND_DEBUG_COLORS[background.category] || BACKGROUND_DEBUG_COLORS['unknown-background'];
-}
-
-function fixedBackgroundMarker(background) {
-    return FIXED_BACKGROUND_MARKERS[background.id] || {
-        label: background.label || 'fixed background',
-        color: backgroundDebugColor(background),
-        opacity: 0.72,
-        fallbackSize: {width: 9, height: 12, depth: 9},
-    };
-}
-
 function formatPlayerSprites(orientation) {
     if (!orientation) return '--';
     return 'head ' + formatHex(orientation.headSprite, 2)
@@ -848,6 +1021,9 @@ export class KnightLoreStage0Renderer {
         this.lastResolvedCollectableItemRecords = [];
         this.lastFull3DObjectCount = 0;
         this.lastFull3DRecognizedObjectCount = 0;
+        this.spriteTexturePreviewCache = new Map();
+        this.lastTexturedBackgroundQuadCount = 0;
+        this.lastDewarpedBackgroundQuadCount = 0;
         this.spellProbeRoomId = null;
         this.lastSpellProbeRows = [];
         this.lastSpellProbeTotalHits = 0;
@@ -855,8 +1031,12 @@ export class KnightLoreStage0Renderer {
         this.lastSpellProbeValueCounts = new Map();
         this.previousSpellProbeWindows = new Map();
         this.roomDimensions = {...DEFAULT_ROOM_DIMENSIONS};
+        this.roomGeometryVisible = false;
         this.activeViewPreset = 'game';
         this.activeRenderMode = 'full-3d';
+        this.wallTextureDewarpEnabled = DEFAULT_WALL_TEXTURE_DEWARP_ENABLED;
+        this.wallTextureDewarpScalePercent = DEFAULT_WALL_TEXTURE_DEWARP_SCALE_PERCENT;
+        this.wallTextureBinaryThreshold = DEFAULT_WALL_TEXTURE_BINARY_THRESHOLD;
         this.handleResize = () => {
             this.resize();
             this.render();
@@ -906,6 +1086,24 @@ export class KnightLoreStage0Renderer {
         });
         this.controlsElement.appendChild(this.renderModeElement);
 
+        this.wallTextureDewarpControl = document.createElement('div');
+        this.wallTextureDewarpControl.className = 'knight-lore-dewarp-scale-control';
+        this.wallTextureDewarpControl.title = 'Wall texture dewarp';
+        this.wallTextureDewarpControl.setAttribute('aria-label', 'Wall texture dewarp');
+        this.wallTextureDewarpToggleLabel = document.createElement('label');
+        this.wallTextureDewarpToggleLabel.className = 'knight-lore-dewarp-toggle';
+        this.wallTextureDewarpToggle = document.createElement('input');
+        this.wallTextureDewarpToggle.type = 'checkbox';
+        this.wallTextureDewarpToggle.checked = this.wallTextureDewarpEnabled;
+        this.wallTextureDewarpToggle.addEventListener('change', () => {
+            this.setWallTextureDewarpEnabled(this.wallTextureDewarpToggle.checked);
+        });
+        this.wallTextureDewarpToggleLabel.appendChild(this.wallTextureDewarpToggle);
+        this.wallTextureDewarpToggleLabel.appendChild(document.createTextNode('Dewarp'));
+        this.wallTextureDewarpControl.appendChild(this.wallTextureDewarpToggleLabel);
+        this.controlsElement.appendChild(this.wallTextureDewarpControl);
+        this.updateWallTextureDewarpControl();
+
         this.canvasHost = document.createElement('div');
         this.canvasHost.className = 'knight-lore-stage0-canvas';
         this.directionOverlayElement = document.createElement('div');
@@ -933,12 +1131,12 @@ export class KnightLoreStage0Renderer {
         diagnosticsHost.appendChild(this.comparisonElement);
 
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x1b2026);
+        this.scene.background = new THREE.Color(0x000000);
 
         this.camera = new THREE.OrthographicCamera(-5, 5, 3.75, -3.75, 0.1, 2000);
 
         this.renderer = new THREE.WebGLRenderer({antialias: true});
-        this.renderer.setClearColor(0x1b2026, 1);
+        this.renderer.setClearColor(0x000000, 1);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
         this.canvasHost.appendChild(this.renderer.domElement);
         this.canvasHost.appendChild(this.directionOverlayElement);
@@ -974,7 +1172,17 @@ export class KnightLoreStage0Renderer {
         this.scene.add(this.roomEdges);
 
         this.staticBackgroundGroup = new THREE.Group();
+        this.schematicBackgroundGroup = new THREE.Group();
+        this.full3DBackgroundGroup = new THREE.Group();
+        this.staticBackgroundGroup.add(this.schematicBackgroundGroup);
+        this.staticBackgroundGroup.add(this.full3DBackgroundGroup);
         this.scene.add(this.staticBackgroundGroup);
+        this.schematicBackgroundRenderer = new KnightLoreSchematicBackgroundRenderer(
+            this.schematicBackgroundGroup
+        );
+        this.full3DBackgroundRenderer = new KnightLoreFull3DBackgroundRenderer(
+            this.full3DBackgroundGroup
+        );
 
         this.specialDynamicGroup = new THREE.Group();
         this.scene.add(this.specialDynamicGroup);
@@ -1130,6 +1338,9 @@ export class KnightLoreStage0Renderer {
             this.lastRoomColorAttribute = null;
             this.lastFull3DObjectCount = 0;
             this.lastFull3DRecognizedObjectCount = 0;
+            this.lastTexturedBackgroundQuadCount = 0;
+            this.lastDewarpedBackgroundQuadCount = 0;
+            if (this.full3DBackgroundRenderer) this.full3DBackgroundRenderer.dispose();
             this.playerGroup.visible = false;
             this.updateDirectionOverlayLabels();
             return;
@@ -1193,10 +1404,8 @@ export class KnightLoreStage0Renderer {
     }
 
     setRoomGeometryVisible(visible) {
-        if (this.gridHelper) this.gridHelper.visible = visible;
-        if (this.axesHelper) this.axesHelper.visible = visible;
-        if (this.floorMesh) this.floorMesh.visible = visible;
-        if (this.roomEdges) this.roomEdges.visible = visible;
+        this.roomGeometryVisible = Boolean(visible);
+        if (this.axesHelper) this.axesHelper.visible = false;
         if (this.staticBackgroundGroup) this.staticBackgroundGroup.visible = visible;
         if (this.specialDynamicGroup) this.specialDynamicGroup.visible = visible;
         if (this.objectWireframeGroup) this.objectWireframeGroup.visible = visible;
@@ -1205,11 +1414,6 @@ export class KnightLoreStage0Renderer {
         if (this.spellMarkerGroup) this.spellMarkerGroup.visible = visible && this.spellMarkerMesh.visible;
         if (this.directionOverlayElement) {
             this.directionOverlayElement.hidden = !visible;
-        }
-        if (this.wallMeshes) {
-            this.wallMeshes.forEach(wall => {
-                wall.visible = visible;
-            });
         }
         this.syncRenderModeVisibility();
     }
@@ -1225,24 +1429,56 @@ export class KnightLoreStage0Renderer {
                 this.roomDimensions.width,
                 this.roomDimensions.height,
                 this.roomDimensions.depth,
+                room.colourAttribute,
+                this.wallTextureDewarpEnabled ? 'dewarp-on' : 'dewarp-off',
+                this.wallTextureDewarpScalePercent,
+                this.wallTextureBinaryThreshold,
                 location.backgroundIds.join(','),
+                liveSchematicBackgroundSignature(room.backgroundComparison),
             ].join(':')
             : 'none';
         if (signature === this.lastStaticBackgroundSignature) return;
         this.lastStaticBackgroundSignature = signature;
 
         this.clearStaticBackgroundGeometry();
-        if (!location) return;
+        this.lastTexturedBackgroundQuadCount = 0;
+        this.lastDewarpedBackgroundQuadCount = 0;
+        if (!location) {
+            if (this.full3DBackgroundRenderer) this.full3DBackgroundRenderer.dispose();
+            return;
+        }
 
-        location.backgrounds.forEach((background, index) => {
-            this.addStaticBackground(background, index);
+        const backgrounds = location.backgrounds || [];
+        const schematicBackgrounds = schematicBackgroundsWithLivePortcullises(
+            backgrounds,
+            room.backgroundComparison
+        );
+        const mapPosition = position => mapKnightLorePositionToScene(position, this.roomDimensions);
+        this.schematicBackgroundRenderer.render(schematicBackgrounds, {
+            roomDimensions: this.roomDimensions,
+            roomColor: roomColorFromAttribute(room ? room.colourAttribute : null),
+            mapPosition,
         });
+        const full3DResult = this.full3DBackgroundRenderer.render(backgrounds, {
+            roomDimensions: this.roomDimensions,
+            colourAttribute: room ? room.colourAttribute : null,
+            latestFrame: this.latestFrame,
+            staticMemory: this.staticMemory,
+            mapPosition,
+            wallTextureDewarpEnabled: this.wallTextureDewarpEnabled,
+            wallTextureDewarpScale: this.wallTextureDewarpScalePercent / 100,
+            wallTextureBinaryThreshold: this.wallTextureBinaryThreshold,
+        });
+        this.lastTexturedBackgroundQuadCount = full3DResult.texturedQuadCount || 0;
+        this.lastDewarpedBackgroundQuadCount = full3DResult.dewarpedQuadCount || 0;
+        this.syncRenderModeVisibility();
     }
 
-    clearStaticBackgroundGeometry() {
-        while (this.staticBackgroundGroup.children.length > 0) {
-            const child = this.staticBackgroundGroup.children[0];
-            this.staticBackgroundGroup.remove(child);
+    clearRenderableGroup(group) {
+        if (!group) return;
+        while (group.children.length > 0) {
+            const child = group.children[0];
+            group.remove(child);
             child.traverse(object => {
                 if (object.geometry) object.geometry.dispose();
                 if (object.material) {
@@ -1253,6 +1489,11 @@ export class KnightLoreStage0Renderer {
                 }
             });
         }
+    }
+
+    clearStaticBackgroundGeometry() {
+        this.clearRenderableGroup(this.schematicBackgroundGroup);
+        this.clearRenderableGroup(this.full3DBackgroundGroup);
     }
 
     clearSpecialDynamicMarkers() {
@@ -1355,6 +1596,12 @@ export class KnightLoreStage0Renderer {
             if (!position) return;
 
             const semantic = classifyDynamicObjectRecord(record);
+            if (isSchematicPortcullisRecord(record)) {
+                const portcullis = this.createSchematicPortcullisWireframe(record, position, semantic);
+                if (portcullis) this.objectWireframeGroup.add(portcullis);
+                return;
+            }
+
             const width = Math.max(1, (record.dimensions.x || record.dimensions.width || 1) / 2);
             const depth = Math.max(1, (record.dimensions.y || record.dimensions.depth || 1) / 2);
             const height = Math.max(1, (record.dimensions.z || record.dimensions.height || 1) / 2);
@@ -1371,6 +1618,70 @@ export class KnightLoreStage0Renderer {
             mesh.userData.objectLabel = semantic.label;
             this.objectWireframeGroup.add(mesh);
         });
+    }
+
+    createSchematicPortcullisWireframe(record, position, semantic) {
+        if (!record || !position) return null;
+
+        const dimensions = record.dimensions || {};
+        const thinX = Number.isFinite(dimensions.x)
+            && Number.isFinite(dimensions.y)
+            && dimensions.x < dimensions.y;
+        const width = thinX
+            ? SCHEMATIC_PORTCULLIS_PANEL_SIZE.depth
+            : SCHEMATIC_PORTCULLIS_PANEL_SIZE.width;
+        const depth = thinX
+            ? SCHEMATIC_PORTCULLIS_PANEL_SIZE.width
+            : SCHEMATIC_PORTCULLIS_PANEL_SIZE.depth;
+        const height = SCHEMATIC_PORTCULLIS_PANEL_SIZE.height;
+        const halfWidth = width / 2;
+        const halfDepth = depth / 2;
+        const positions = [];
+        const addLine = (x1, y1, z1, x2, y2, z2) => {
+            positions.push(x1, y1, z1, x2, y2, z2);
+        };
+
+        if (thinX) {
+            addLine(0, 0, -halfDepth, 0, height, -halfDepth);
+            addLine(0, 0, halfDepth, 0, height, halfDepth);
+            addLine(0, height, -halfDepth, 0, height, halfDepth);
+            addLine(-halfWidth, 0, -halfDepth, halfWidth, 0, -halfDepth);
+            addLine(-halfWidth, 0, halfDepth, halfWidth, 0, halfDepth);
+            for (let i = 0; i < 5; i++) {
+                const z = -depth * 0.38 + (depth * 0.76) * (i / 4);
+                addLine(0, 0, z, 0, height * 0.94, z);
+            }
+            [0.22, 0.78].forEach(heightFactor => {
+                addLine(0, height * heightFactor, -halfDepth, 0, height * heightFactor, halfDepth);
+            });
+        } else {
+            addLine(-halfWidth, 0, 0, -halfWidth, height, 0);
+            addLine(halfWidth, 0, 0, halfWidth, height, 0);
+            addLine(-halfWidth, height, 0, halfWidth, height, 0);
+            addLine(-halfWidth, 0, -halfDepth, -halfWidth, 0, halfDepth);
+            addLine(halfWidth, 0, -halfDepth, halfWidth, 0, halfDepth);
+            for (let i = 0; i < 5; i++) {
+                const x = -width * 0.38 + (width * 0.76) * (i / 4);
+                addLine(x, 0, 0, x, height * 0.94, 0);
+            }
+            [0.22, 0.78].forEach(heightFactor => {
+                addLine(-halfWidth, height * heightFactor, 0, halfWidth, height * heightFactor, 0);
+            });
+        }
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        const mesh = new THREE.LineSegments(
+            geometry,
+            this.materialForDynamicObjectSemantic(semantic)
+        );
+        mesh.position.copy(position.vector);
+        mesh.userData.dynamicSlot = record.slotIndex;
+        mesh.userData.spriteId = record.spriteId;
+        mesh.userData.objectCategory = semantic.category;
+        mesh.userData.objectLabel = semantic.label;
+        mesh.userData.schematicKind = 'portcullis-bars';
+        return mesh;
     }
 
     updateFull3DObjectModels() {
@@ -1715,224 +2026,6 @@ export class KnightLoreStage0Renderer {
         return mesh;
     }
 
-    createSideGroup(side, layer = 0) {
-        const group = new THREE.Group();
-        const offset = 0.75 + layer * 0.12;
-        const dimensions = this.roomDimensions;
-
-        switch (side) {
-            case 'north':
-                group.position.set(0, 0, -dimensions.depth / 2 - offset);
-                group.rotation.y = Math.PI;
-                break;
-            case 'south':
-                group.position.set(0, 0, dimensions.depth / 2 + offset);
-                break;
-            case 'east':
-                group.position.set(dimensions.width / 2 + offset, 0, 0);
-                group.rotation.y = Math.PI / 2;
-                break;
-            case 'west':
-                group.position.set(-dimensions.width / 2 - offset, 0, 0);
-                group.rotation.y = -Math.PI / 2;
-                break;
-        }
-
-        group.userData.side = side;
-        return group;
-    }
-
-    sideLength(side) {
-        return (side === 'east' || side === 'west')
-            ? this.roomDimensions.depth
-            : this.roomDimensions.width;
-    }
-
-    addSideBand(side, color, layer, y, thickness = 2.5, opacity = 0.48) {
-        const group = this.createSideGroup(side, layer);
-        const band = this.createDebugBox(
-            Math.max(12, this.sideLength(side) - 4),
-            thickness,
-            1.5,
-            color,
-            opacity
-        );
-        band.position.y = y;
-        group.add(band);
-        this.staticBackgroundGroup.add(group);
-    }
-
-    addWallPreset(background, index) {
-        const color = backgroundDebugColor(background);
-        CARDINAL_SIDES.forEach((side, sideIndex) => {
-            this.addSideBand(
-                side,
-                color,
-                index + sideIndex * 0.1,
-                Math.max(4, this.roomDimensions.height - 5),
-                2,
-                background.category === 'tree-room' ? 0.62 : 0.38
-            );
-        });
-    }
-
-    addSidePatch(background, index) {
-        if (!background.side) return;
-        const color = backgroundDebugColor(background);
-        const group = this.createSideGroup(background.side, index);
-        const patch = this.createDebugBox(
-            Math.max(12, this.sideLength(background.side) * 0.42),
-            Math.max(16, this.roomDimensions.height * 0.58),
-            1.6,
-            color,
-            0.45
-        );
-        patch.position.y = Math.max(10, this.roomDimensions.height * 0.42);
-        group.add(patch);
-        this.staticBackgroundGroup.add(group);
-    }
-
-    addOpeningFrame(background, index, withBars = false) {
-        if (!background.side) return;
-        const color = backgroundDebugColor(background);
-        const group = this.createSideGroup(background.side, index);
-        if (!withBars) {
-            const arch = createRicardArchModel({
-                color,
-                opacity: background.category === 'tree-arch' ? 0.88 : 0.9,
-                outline: true,
-            });
-            arch.userData.backgroundId = background.id;
-            arch.userData.backgroundCategory = background.category;
-            group.add(arch);
-            this.staticBackgroundGroup.add(group);
-            return;
-        }
-
-        const openingWidth = PORTCULLIS_PANEL_SIZE.width;
-        const openingHeight = PORTCULLIS_PANEL_SIZE.height;
-        const thickness = PORTCULLIS_BAR_WIDTH;
-        const depth = PORTCULLIS_PANEL_SIZE.depth;
-
-        const left = this.createDebugBox(thickness, openingHeight, depth, color, 0.82);
-        left.position.set(-openingWidth / 2, openingHeight / 2, 0);
-        group.add(left);
-
-        const right = this.createDebugBox(thickness, openingHeight, depth, color, 0.82);
-        right.position.set(openingWidth / 2, openingHeight / 2, 0);
-        group.add(right);
-
-        const top = this.createDebugBox(openingWidth + thickness, thickness, depth, color, 0.82);
-        top.position.set(0, openingHeight, 0);
-        group.add(top);
-
-        if (background.category === 'high-arch-base') {
-            const base = this.createDebugBox(openingWidth + thickness, thickness, depth, color, 0.74);
-            base.position.set(0, thickness / 2, 0);
-            group.add(base);
-        }
-
-        if (withBars) {
-            const barCount = 5;
-            for (let i = 0; i < barCount; i++) {
-                const x = -openingWidth * 0.38 + (openingWidth * 0.76) * (i / (barCount - 1));
-                const bar = this.createDebugBox(PORTCULLIS_BAR_WIDTH, openingHeight * 0.94, depth + 0.2, color, 0.9);
-                bar.position.set(x, openingHeight * 0.47, 0.35);
-                group.add(bar);
-            }
-            [0.22, 0.78].forEach(heightFactor => {
-                const rail = this.createDebugBox(openingWidth, PORTCULLIS_BAR_WIDTH, depth + 0.25, color, 0.9);
-                rail.position.set(0, openingHeight * heightFactor, 0.38);
-                group.add(rail);
-            });
-        }
-
-        this.staticBackgroundGroup.add(group);
-    }
-
-    addFixedBackgroundMarker(background, index) {
-        const markerInfo = fixedBackgroundMarker(background);
-        const group = new THREE.Group();
-        const records = Array.isArray(background.records) ? background.records : [];
-        const fallbackSize = markerInfo.fallbackSize;
-        const forceRoomCenter = background.id === 0x13;
-
-        records.forEach((record, recordIndex) => {
-            const position = forceRoomCenter
-                ? {vector: new THREE.Vector3(0, 0, 0)}
-                : mapKnightLorePositionToScene(record.position, this.roomDimensions);
-            if (!position) return;
-
-            const width = Math.max(3, (record.dimensions.x || record.dimensions.width || fallbackSize.width) / 2);
-            const depth = Math.max(3, (record.dimensions.y || record.dimensions.depth || fallbackSize.depth) / 2);
-            const height = Math.max(3, (record.dimensions.z || record.dimensions.height || fallbackSize.height) / 2);
-            const recordMesh = this.createDebugBox(width, height, depth, markerInfo.color, markerInfo.opacity);
-            recordMesh.position.copy(position.vector);
-            recordMesh.position.y += height / 2;
-            recordMesh.userData.backgroundId = background.id;
-            recordMesh.userData.backgroundLabel = markerInfo.label;
-            recordMesh.userData.backgroundRecordIndex = recordIndex;
-            if (forceRoomCenter) {
-                recordMesh.userData.cauldronPlacement = 'room-center';
-            }
-            group.add(recordMesh);
-        });
-
-        if (group.children.length === 0) {
-            const fallbackMarker = this.createDebugBox(
-                fallbackSize.width,
-                fallbackSize.height,
-                fallbackSize.depth,
-                markerInfo.color,
-                markerInfo.opacity
-            );
-            fallbackMarker.position.set(
-                forceRoomCenter ? 0 : (index % 3 - 1) * 11,
-                fallbackSize.height / 2,
-                forceRoomCenter ? 0 : (Math.floor(index / 3) % 3 - 1) * 11
-            );
-            fallbackMarker.userData.backgroundId = background.id;
-            fallbackMarker.userData.backgroundLabel = markerInfo.label;
-            if (forceRoomCenter) {
-                fallbackMarker.userData.cauldronPlacement = 'room-center';
-            }
-            group.add(fallbackMarker);
-        }
-
-        group.userData.backgroundId = background.id;
-        group.userData.backgroundLabel = markerInfo.label;
-        this.staticBackgroundGroup.add(group);
-    }
-
-    addStaticBackground(background, index) {
-        switch (background.category) {
-            case 'wall-preset':
-            case 'tree-room':
-                this.addWallPreset(background, index);
-                break;
-            case 'arch':
-            case 'tree-arch':
-            case 'high-arch':
-            case 'high-arch-base':
-                this.addOpeningFrame(background, index, false);
-                break;
-            case 'portcullis':
-                this.addOpeningFrame(background, index, true);
-                break;
-            case 'tree-filler':
-                this.addSidePatch(background, index);
-                break;
-            case 'fixed-background':
-                if (!LIVE_FIXED_BACKGROUND_IDS.has(background.id)) {
-                    this.addFixedBackgroundMarker(background, index);
-                }
-                break;
-            default:
-                this.addSidePatch(background, index);
-                break;
-        }
-    }
-
     updatePlayerProxy() {
         const scene = this.latestFrame && this.latestFrame.knightLoreScene;
         const player = scene ? scene.player : null;
@@ -2064,6 +2157,7 @@ export class KnightLoreStage0Renderer {
             ? room.dynamicVisualRecords
             : (room && room.sprites ? room.sprites : []);
         const backgroundComparison = room ? room.backgroundComparison : null;
+        const spriteTextures = room ? room.spriteTextures : null;
         const staticLine = !staticLocation
             ? 'Static location: not decoded'
             : staticLocation.error
@@ -2092,6 +2186,16 @@ export class KnightLoreStage0Renderer {
                 this.roomDimensions.depth,
             ].join(', '),
             'Render mode: ' + this.activeRenderMode,
+            'Wall texture dewarp: ' + (
+                this.wallTextureDewarpEnabled
+                    ? 'on'
+                    : 'off (raw textures)'
+            ),
+            'Wall texture binary threshold: ' + (
+                this.wallTextureBinaryThreshold > 0
+                    ? this.wallTextureBinaryThreshold
+                    : 'off'
+            ),
             'Full 3D basic block game XYZ: ' + [
                 BASIC_BLOCK_GAME_SIZE.x,
                 BASIC_BLOCK_GAME_SIZE.y,
@@ -2107,11 +2211,20 @@ export class KnightLoreStage0Renderer {
             ].join(', '),
             'Geometry size source: ' + roomDimensionSource(room),
             'Static cache: ' + (cache && cache.byteLength ? cache.byteLength + ' bytes' : 'not loaded'),
+            'Sprite textures: ' + (
+                spriteTextures && spriteTextures.available
+                    ? spriteTextures.decodedCount + '/' + spriteTextures.spriteCount
+                        + ' decoded, current refs ' + spriteTextures.referencedCount
+                        + ', invalid refs ' + spriteTextures.invalidReferencedCount
+                    : 'not decoded'
+            ),
             staticLine,
             comparisonLine,
             'Background ids: ' + formatBackgroundIds(decodedLocation ? decodedLocation.backgroundIds : []),
             'Background types: ' + summarizeBackgroundCategories(decodedLocation ? decodedLocation.backgrounds : []),
             'Static background sprites: ' + countBackgroundRecords(decodedLocation ? decodedLocation.backgrounds : []),
+            'Textured background quads: ' + this.lastTexturedBackgroundQuadCount
+                + ' (' + this.lastDewarpedBackgroundQuadCount + ' texture-dewarped)',
             'Dynamic visual slots: ' + dynamicRecords.length + ' @ ' + formatHex(room ? room.dynamicStart : null, 4)
                 + ' step ' + formatHex(room ? room.dynamicSlotSize : null, 2),
             'Static/dynamic prefix: ' + summarizeBackgroundComparison(backgroundComparison),
@@ -2178,13 +2291,22 @@ export class KnightLoreStage0Renderer {
             room ? room.id : null,
             resolvedItemRecords
         );
+        const spriteTextureTable = this.renderSpriteTextureExtractorTable(
+            room ? room.spriteTextures : null,
+            room ? room.colourAttribute : null
+        );
 
         if (!comparison || !staticLocation || staticLocation.error) {
             this.comparisonElement.innerHTML = [
                 '<p class="knight-lore-stage2-note is-warning">Background comparison unavailable.</p>',
                 objectTable,
                 itemTable,
+                spriteTextureTable,
             ].join('');
+            this.updateSpriteTexturePreviewCanvas(
+                room ? room.spriteTextures : null,
+                room ? room.colourAttribute : null
+            );
             return;
         }
 
@@ -2240,7 +2362,315 @@ export class KnightLoreStage0Renderer {
             '</table>',
             objectTable,
             itemTable,
+            spriteTextureTable,
         ].join('');
+        this.updateSpriteTexturePreviewCanvas(
+            room ? room.spriteTextures : null,
+            room ? room.colourAttribute : null
+        );
+    }
+
+    spriteTexturePreviewRows(spriteTextures) {
+        if (!spriteTextures || !spriteTextures.available) return [];
+
+        const rows = [];
+        for (const group of SPRITE_TEXTURE_PREVIEW_GROUPS) {
+            for (const spriteId of group.ids) {
+                const texture = getKnightLoreSpriteTexture(this.latestFrame, spriteId)
+                    || getKnightLoreSpriteTexture(this.staticMemory, spriteId);
+                if (!texture) {
+                    rows.push({
+                        id: spriteId,
+                        valid: false,
+                        warning: 'missing from static texture catalog',
+                        groupLabel: group.label,
+                        yFlipped: SPRITE_TEXTURE_VERTICAL_FLIP_IDS.has(spriteId),
+                    });
+                    continue;
+                }
+
+                rows.push({
+                    id: texture.id,
+                    pointerAddress: texture.pointerAddress,
+                    dataAddress: texture.dataAddress,
+                    dataEndAddress: texture.dataEndAddress,
+                    valid: Boolean(texture.valid),
+                    warning: texture.warning || null,
+                    widthBytes: texture.widthBytes || null,
+                    widthPixels: texture.widthPixels || null,
+                    heightPixels: texture.heightPixels || null,
+                    imageByteCount: texture.imageByteCount || 0,
+                    maskByteCount: texture.maskByteCount || 0,
+                    imageBitCount: texture.imageBitCount || 0,
+                    maskBitCount: texture.maskBitCount || 0,
+                    previewRows: texture.previewRows || [],
+                    groupLabel: group.label,
+                    yFlipped: SPRITE_TEXTURE_VERTICAL_FLIP_IDS.has(texture.id),
+                });
+            }
+        }
+
+        return rows;
+    }
+
+    createSpriteBitplaneCanvas(expanded, colourAttribute, mode, flipY = false) {
+        if (!expanded || typeof document === 'undefined') return null;
+        const canvas = document.createElement('canvas');
+        canvas.width = expanded.widthPixels;
+        canvas.height = expanded.heightPixels;
+
+        const context = canvas.getContext('2d');
+        if (!context) return null;
+
+        const imageData = context.createImageData(canvas.width, canvas.height);
+        const ink = rgbFromHexColor(spectrumInkColorFromAttribute(colourAttribute));
+        const paper = rgbFromHexColor(spectrumPaperColorFromAttribute(colourAttribute));
+
+        for (let y = 0; y < expanded.heightPixels; y++) {
+            const sourceY = flipY ? expanded.heightPixels - 1 - y : y;
+            for (let x = 0; x < expanded.widthPixels; x++) {
+                const sourceIndex = sourceY * expanded.widthPixels + x;
+                const pixelIndex = (y * expanded.widthPixels + x) * 4;
+                if (mode === 'mask') {
+                    const value = expanded.maskPixels[sourceIndex] ? 0xf8 : 0x1e;
+                    imageData.data[pixelIndex] = value;
+                    imageData.data[pixelIndex + 1] = value;
+                    imageData.data[pixelIndex + 2] = value;
+                    imageData.data[pixelIndex + 3] = 0xff;
+                    continue;
+                }
+
+                const color = expanded.imagePixels[sourceIndex] ? ink : paper;
+                imageData.data[pixelIndex] = color.r;
+                imageData.data[pixelIndex + 1] = color.g;
+                imageData.data[pixelIndex + 2] = color.b;
+                imageData.data[pixelIndex + 3] = 0xff;
+            }
+        }
+
+        context.putImageData(imageData, 0, 0);
+        return canvas;
+    }
+
+    createCanvasTexture(canvas) {
+        if (!canvas) return null;
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.magFilter = THREE.NearestFilter;
+        texture.minFilter = THREE.NearestFilter;
+        texture.flipY = false;
+        texture.generateMipmaps = false;
+        if (THREE.SRGBColorSpace) {
+            texture.colorSpace = THREE.SRGBColorSpace;
+        }
+        texture.needsUpdate = true;
+        return texture;
+    }
+
+    generatedSpriteTextureRecord(textureSummary, colourAttribute) {
+        if (!textureSummary || !textureSummary.valid) return null;
+        const texture = getKnightLoreSpriteTexture(this.latestFrame, textureSummary.id)
+            || getKnightLoreSpriteTexture(this.staticMemory, textureSummary.id);
+        if (!texture || !texture.valid) return null;
+
+        const cacheKey = [
+            texture.id,
+            colourAttribute === null || colourAttribute === undefined ? '--' : colourAttribute,
+            textureSummary.yFlipped ? 'flip-y' : 'normal-y',
+            this.wallTextureBinaryThreshold > 0
+                ? 'binary-' + this.wallTextureBinaryThreshold
+                : 'continuous',
+            texture.dataAddress,
+            texture.dataEndAddress,
+            texture.widthPixels,
+            texture.heightPixels,
+            texture.imageBitCount,
+            texture.maskBitCount,
+        ].join(':');
+
+        const cached = this.spriteTexturePreviewCache.get(cacheKey);
+        if (cached) return cached;
+
+        const expanded = expandKnightLoreSpriteTexture(texture);
+        if (!expanded) return null;
+
+        const imageCanvas = this.createSpriteBitplaneCanvas(
+            expanded,
+            colourAttribute,
+            'image',
+            textureSummary.yFlipped
+        );
+        const maskCanvas = this.createSpriteBitplaneCanvas(
+            expanded,
+            colourAttribute,
+            'mask',
+            textureSummary.yFlipped
+        );
+        if (!imageCanvas || !maskCanvas) return null;
+        const correctedImageCanvas = createIsometricSlopeCorrectedCanvas(imageCanvas, {
+            slope: isometricTextureShearSlopeForSpriteId(textureSummary.id),
+        });
+        const binaryCorrectedImageCanvas = this.wallTextureBinaryThreshold > 0
+            ? createBinaryWallTextureCanvas(
+                correctedImageCanvas || imageCanvas,
+                rgbFromHexColor(spectrumInkColorFromAttribute(colourAttribute)),
+                this.wallTextureBinaryThreshold
+            )
+            : null;
+
+        const record = {
+            key: cacheKey,
+            summary: textureSummary,
+            texture,
+            expanded,
+            imageCanvas,
+            maskCanvas,
+            correctedImageCanvas: binaryCorrectedImageCanvas || correctedImageCanvas,
+            correctedImageThresholded: Boolean(binaryCorrectedImageCanvas),
+            yFlipped: Boolean(textureSummary.yFlipped),
+            groupLabel: textureSummary.groupLabel || '',
+            imageTexture: this.createCanvasTexture(imageCanvas),
+            maskTexture: this.createCanvasTexture(maskCanvas),
+        };
+        this.spriteTexturePreviewCache.set(cacheKey, record);
+        return record;
+    }
+
+    pruneSpriteTexturePreviewCache(activeKeys) {
+        for (const [key, record] of this.spriteTexturePreviewCache.entries()) {
+            if (activeKeys.has(key)) continue;
+            if (record.imageTexture) record.imageTexture.dispose();
+            if (record.maskTexture) record.maskTexture.dispose();
+            this.spriteTexturePreviewCache.delete(key);
+        }
+    }
+
+    spritePreviewScale(canvas) {
+        if (!canvas || canvas.width <= 0 || canvas.height <= 0) return 1;
+        const maxScale = Math.min(
+            SPRITE_TEXTURE_PREVIEW_IMAGE_MAX_WIDTH / canvas.width,
+            SPRITE_TEXTURE_PREVIEW_IMAGE_MAX_HEIGHT / canvas.height
+        );
+        if (maxScale >= 1) return Math.max(1, Math.floor(Math.min(maxScale, 6)));
+        return maxScale;
+    }
+
+    drawSpritePreviewImage(context, sourceCanvas, x, y, label) {
+        const scale = this.spritePreviewScale(sourceCanvas);
+        const width = Math.max(1, Math.round(sourceCanvas.width * scale));
+        const height = Math.max(1, Math.round(sourceCanvas.height * scale));
+
+        context.fillStyle = '#CBD5E1';
+        context.fillText(label, x, y - 5);
+        context.strokeStyle = '#64748B';
+        context.strokeRect(x - 0.5, y - 0.5, width + 1, height + 1);
+        context.imageSmoothingEnabled = false;
+        context.drawImage(sourceCanvas, x, y, width, height);
+    }
+
+    updateSpriteTexturePreviewCanvas(spriteTextures, colourAttribute) {
+        const canvas = this.comparisonElement
+            ? this.comparisonElement.querySelector('.knight-lore-sprite-texture-preview')
+            : null;
+        if (!canvas) return;
+
+        const rows = this.spriteTexturePreviewRows(spriteTextures)
+            .filter(texture => texture.valid);
+        const visibleRows = rows.slice(0, SPRITE_TEXTURE_PREVIEW_MAX_ROWS);
+        const activeKeys = new Set();
+        const records = visibleRows
+            .map(texture => this.generatedSpriteTextureRecord(texture, colourAttribute))
+            .filter(Boolean);
+        records.forEach(record => activeKeys.add(record.key));
+        this.pruneSpriteTexturePreviewCache(activeKeys);
+
+        if (records.length === 0) {
+            canvas.width = 360;
+            canvas.height = 48;
+            const context = canvas.getContext('2d');
+            if (!context) return;
+            context.fillStyle = '#0F172A';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+            context.fillStyle = '#CBD5E1';
+            context.font = '12px Menlo, Consolas, monospace';
+            context.fillText('No valid current-room sprite textures to preview.', 12, 28);
+            return;
+        }
+
+        const columns = Math.min(SPRITE_TEXTURE_PREVIEW_COLUMNS, records.length);
+        const bodyRows = Math.ceil(records.length / columns);
+        canvas.width = SPRITE_TEXTURE_PREVIEW_MARGIN * 2
+            + columns * SPRITE_TEXTURE_PREVIEW_TILE_WIDTH;
+        canvas.height = SPRITE_TEXTURE_PREVIEW_MARGIN * 2
+            + bodyRows * SPRITE_TEXTURE_PREVIEW_TILE_HEIGHT;
+
+        const context = canvas.getContext('2d');
+        if (!context) return;
+        const inkColor = cssColorFromHex(spectrumInkColorFromAttribute(colourAttribute));
+        const paperColor = cssColorFromHex(spectrumPaperColorFromAttribute(colourAttribute));
+
+        context.fillStyle = '#0F172A';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.font = '11px Menlo, Consolas, monospace';
+        context.textBaseline = 'top';
+
+        records.forEach((record, index) => {
+            const column = index % columns;
+            const row = Math.floor(index / columns);
+            const x = SPRITE_TEXTURE_PREVIEW_MARGIN + column * SPRITE_TEXTURE_PREVIEW_TILE_WIDTH;
+            const y = SPRITE_TEXTURE_PREVIEW_MARGIN + row * SPRITE_TEXTURE_PREVIEW_TILE_HEIGHT;
+            const label = [
+                formatHex(record.texture.id, 2),
+                record.texture.widthPixels + 'x' + record.texture.heightPixels,
+                formatRecordAddress(record.texture.dataAddress),
+            ].join('  ');
+
+            context.fillStyle = '#1E293B';
+            context.fillRect(
+                x,
+                y,
+                SPRITE_TEXTURE_PREVIEW_TILE_WIDTH - SPRITE_TEXTURE_PREVIEW_MARGIN,
+                SPRITE_TEXTURE_PREVIEW_TILE_HEIGHT - SPRITE_TEXTURE_PREVIEW_MARGIN
+            );
+            context.strokeStyle = '#334155';
+            context.strokeRect(
+                x + 0.5,
+                y + 0.5,
+                SPRITE_TEXTURE_PREVIEW_TILE_WIDTH - SPRITE_TEXTURE_PREVIEW_MARGIN - 1,
+                SPRITE_TEXTURE_PREVIEW_TILE_HEIGHT - SPRITE_TEXTURE_PREVIEW_MARGIN - 1
+            );
+
+            context.fillStyle = '#F8FAFC';
+            context.fillText(label, x + 8, y + 8);
+            context.fillStyle = '#94A3B8';
+            context.fillText(
+                'ink ' + inkColor + ' paper ' + paperColor
+                    + ' bits ' + record.texture.imageBitCount + '/' + record.texture.maskBitCount,
+                x + 8,
+                y + 21
+            );
+            context.fillText(
+                record.groupLabel + (record.yFlipped ? '  flip Y' : ''),
+                x + 8,
+                y + 34
+            );
+
+            const imageY = y + SPRITE_TEXTURE_PREVIEW_LABEL_HEIGHT + 30;
+            this.drawSpritePreviewImage(context, record.imageCanvas, x + 8, imageY, 'raw colour');
+            this.drawSpritePreviewImage(
+                context,
+                record.correctedImageCanvas || record.imageCanvas,
+                x + 210,
+                imageY,
+                record.correctedImageThresholded ? 'iso + binary' : 'iso corrected'
+            );
+            this.drawSpritePreviewImage(
+                context,
+                record.maskCanvas,
+                x + 412,
+                imageY,
+                'mask bits'
+            );
+        });
     }
 
     renderRoomColourProbeTable(room) {
@@ -2595,6 +3025,136 @@ export class KnightLoreStage0Renderer {
         ].join('');
     }
 
+    renderSpriteTextureExtractorTable(spriteTextures, colourAttribute) {
+        if (!spriteTextures || !spriteTextures.available) {
+            return [
+                '<div class="knight-lore-stage2-comparison-heading is-secondary">',
+                '<strong>Sprite texture extractor</strong>',
+                '<span>static memory unavailable</span>',
+                '</div>',
+                '<p class="knight-lore-stage2-note is-warning">'
+                    + 'Sprite textures cannot be decoded until the static memory cache is available.'
+                    + '</p>',
+            ].join('');
+        }
+
+        const maxRows = SPRITE_TEXTURE_PREVIEW_MAX_ROWS;
+        const rows = this.spriteTexturePreviewRows(spriteTextures);
+        const visibleRows = rows.slice(0, maxRows);
+        const overflowNote = rows.length > maxRows
+            ? '<p class="knight-lore-stage2-note">Showing first '
+                + maxRows
+                + ' focused sprites; '
+                + (rows.length - maxRows)
+                + ' additional sprites hidden.</p>'
+            : '';
+        const pointerRange = formatAddressRange(
+            spriteTextures.pointerTableStart,
+            spriteTextures.pointerTableEnd
+        );
+        const dataRange = formatAddressRange(
+            spriteTextures.spriteDataStart,
+            spriteTextures.spriteDataEnd
+        );
+        const inkColor = cssColorFromHex(spectrumInkColorFromAttribute(colourAttribute));
+        const paperColor = cssColorFromHex(spectrumPaperColorFromAttribute(colourAttribute));
+
+        return [
+            '<div class="knight-lore-stage2-comparison-heading is-secondary">',
+            '<strong>Sprite texture extractor</strong>',
+            '<span>'
+                + escapeHtml(pointerRange)
+                + ' pointers, '
+                + escapeHtml(dataRange)
+                + ' data, decoded '
+                + spriteTextures.decodedCount
+                + '/'
+                + spriteTextures.spriteCount
+                + ', current refs '
+                + spriteTextures.referencedCount
+                + '</span>',
+            '</div>',
+            '<p class="knight-lore-stage2-note">'
+                + 'Decodes the original sprite texture bytes from static memory: byte 0 width in bytes, '
+                + 'byte 1 height in pixels, then mask/image byte pairs. '
+                + 'The bit order is treated as most-significant-bit first, left to right.'
+                + '</p>',
+            '<p class="knight-lore-stage2-note">'
+                + 'Focused atlas: confirmed wall sprites 0x0A..0x0F, wooden entrances 0x04 and 0x05, '
+                + 'and wooden walls 0x80..0x82. Wall sprites 0x0A..0x0F and all wooden texture '
+                + 'sprites are configured for vertical flipping when displayed or reused.'
+                + '</p>',
+            '<p class="knight-lore-stage2-note">'
+                + 'Preview canvas uses the current room attribute '
+                + escapeHtml(formatHex(colourAttribute, 2))
+                + ': image bits are rendered as ink '
+                + escapeHtml(inkColor)
+                + ' over paper '
+                + escapeHtml(paperColor)
+                + '; mask bits are shown separately in greyscale. The middle preview applies a 2:1 '
+                + 'isometric slope correction using arctan(1/2), matching the default Full 3D Dewarp pass'
+                + (this.wallTextureBinaryThreshold > 0
+                    ? ', then the fixed binary threshold ' + this.wallTextureBinaryThreshold + '.'
+                    : '.')
+                + '</p>',
+            '<canvas class="knight-lore-sprite-texture-preview" width="1" height="1" '
+                + 'aria-label="Decoded sprite texture previews"></canvas>',
+            rows.length === 0
+                ? '<p class="knight-lore-stage2-note is-warning">No focused sprite textures found.</p>'
+                : [
+                    overflowNote,
+                    '<table>',
+                    '<thead><tr>',
+                    '<th>Group</th>',
+                    '<th>Sprite</th>',
+                    '<th>Pointer</th>',
+                    '<th>Data bytes</th>',
+                    '<th>Pixel size</th>',
+                    '<th>Width bytes</th>',
+                    '<th>Image/mask bytes</th>',
+                    '<th>Set bits image/mask</th>',
+                    '<th>Preview transform</th>',
+                    '<th>Status</th>',
+                    '</tr></thead>',
+                    '<tbody>',
+                    visibleRows.map(texture => {
+                        const dataRangeLabel = texture.valid
+                            ? formatAddressRange(texture.dataAddress, texture.dataEndAddress)
+                            : formatRecordAddress(texture.dataAddress);
+                        const pixelSize = texture.valid
+                            ? texture.widthPixels + ' x ' + texture.heightPixels
+                            : '--';
+                        const planeBytes = texture.valid
+                            ? texture.imageByteCount + ' / ' + texture.maskByteCount
+                            : '--';
+                        const bitCounts = texture.valid
+                            ? texture.imageBitCount + ' / ' + texture.maskBitCount
+                            : '--';
+                        const preview = texture.previewRows && texture.previewRows.length > 0
+                            ? texture.previewRows.join('\n')
+                            : '';
+                        const rowClass = texture.valid ? 'is-exact' : 'is-mismatch';
+                        return (
+                            '<tr class="' + rowClass + '">' +
+                            '<td>' + escapeHtml(texture.groupLabel || '--') + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatHex(texture.id, 2)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatRecordAddress(texture.pointerAddress)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(dataRangeLabel) + '</td>' +
+                            '<td class="mono" title="' + escapeHtml(preview) + '">' + escapeHtml(pixelSize) + '</td>' +
+                            '<td class="mono">' + escapeHtml(texture.valid ? texture.widthBytes : '--') + '</td>' +
+                            '<td class="mono">' + escapeHtml(planeBytes) + '</td>' +
+                            '<td class="mono">' + escapeHtml(bitCounts) + '</td>' +
+                            '<td>' + escapeHtml(texture.yFlipped ? 'flip Y' : 'none') + '</td>' +
+                            '<td>' + escapeHtml(texture.valid ? 'decoded' : (texture.warning || 'invalid')) + '</td>' +
+                            '</tr>'
+                        );
+                    }).join(''),
+                    '</tbody>',
+                    '</table>',
+                ].join(''),
+        ].join('');
+    }
+
     renderDynamicObjectCandidateTable(objectCandidates, backgroundPrefixCount) {
         const maxRows = 64;
         const visibleRows = objectCandidates.slice(0, maxRows);
@@ -2766,11 +3326,60 @@ export class KnightLoreStage0Renderer {
         }
         this.updateSummary();
         this.syncRenderModeVisibility();
+        this.setViewPreset(this.activeViewPreset);
+        this.render();
+    }
+
+    updateWallTextureDewarpControl() {
+        if (this.wallTextureDewarpToggle) {
+            this.wallTextureDewarpToggle.checked = this.wallTextureDewarpEnabled;
+        }
+        if (this.wallTextureDewarpControl) {
+            this.wallTextureDewarpControl.classList.toggle('is-disabled', !this.wallTextureDewarpEnabled);
+        }
+    }
+
+    setWallTextureDewarpEnabled(enabled) {
+        const nextEnabled = Boolean(enabled);
+        if (nextEnabled === this.wallTextureDewarpEnabled) {
+            this.updateWallTextureDewarpControl();
+            return;
+        }
+
+        this.wallTextureDewarpEnabled = nextEnabled;
+        this.updateWallTextureDewarpControl();
+        this.lastStaticBackgroundSignature = null;
+        if (this.latestFrame) this.updateStaticBackgroundGeometry();
+        this.updateSummary();
         this.render();
     }
 
     syncRenderModeVisibility() {
-        const roomVisible = Boolean(this.floorMesh && this.floorMesh.visible);
+        const roomVisible = Boolean(this.roomGeometryVisible);
+        const schematicVisible = roomVisible && this.activeRenderMode === 'schematic';
+        if (this.directionOverlayElement) {
+            this.directionOverlayElement.hidden = !schematicVisible;
+        }
+        if (this.gridHelper) {
+            this.gridHelper.visible = schematicVisible;
+        }
+        if (this.floorMesh) {
+            this.floorMesh.visible = schematicVisible;
+        }
+        if (this.roomEdges) {
+            this.roomEdges.visible = schematicVisible;
+        }
+        if (this.wallMeshes) {
+            this.wallMeshes.forEach(wall => {
+                wall.visible = schematicVisible;
+            });
+        }
+        if (this.schematicBackgroundGroup) {
+            this.schematicBackgroundGroup.visible = schematicVisible;
+        }
+        if (this.full3DBackgroundGroup) {
+            this.full3DBackgroundGroup.visible = roomVisible && this.activeRenderMode === 'full-3d';
+        }
         if (this.objectWireframeGroup) {
             this.objectWireframeGroup.visible = roomVisible && this.activeRenderMode === 'schematic';
         }
@@ -2784,7 +3393,7 @@ export class KnightLoreStage0Renderer {
         this.activeViewPreset = preset.id;
         this.viewSelect.value = preset.id;
 
-        const target = new THREE.Vector3(0, this.roomDimensions.height / 2, 0);
+        const target = this.cameraTarget();
         const direction = new THREE.Vector3(...preset.direction).normalize();
         this.camera.position.copy(target).addScaledVector(direction, CAD_CAMERA_DISTANCE);
         this.camera.up.set(...preset.up).normalize();
@@ -2792,6 +3401,13 @@ export class KnightLoreStage0Renderer {
         this.updateWallVisibility();
         this.resize();
         this.render();
+    }
+
+    cameraTarget() {
+        const targetY = this.activeRenderMode === 'full-3d'
+            ? this.roomDimensions.height * FULL_3D_CAMERA_TARGET_HEIGHT_FACTOR
+            : this.roomDimensions.height / 2;
+        return new THREE.Vector3(0, targetY, 0);
     }
 
     updateWallVisibility() {
@@ -2819,7 +3435,10 @@ export class KnightLoreStage0Renderer {
             + this.roomDimensions.depth ** 2
             + this.roomDimensions.height ** 2
         ) / 2;
-        const frustumHeight = Math.max(MIN_CAMERA_FRUSTUM_HEIGHT, radius * CAMERA_FRUSTUM_RADIUS_SCALE);
+        const baseFrustumHeight = Math.max(MIN_CAMERA_FRUSTUM_HEIGHT, radius * CAMERA_FRUSTUM_RADIUS_SCALE);
+        const frustumHeight = this.activeRenderMode === 'full-3d'
+            ? baseFrustumHeight / FULL_3D_CAMERA_ZOOM
+            : baseFrustumHeight;
 
         this.camera.left = -frustumHeight * aspect / 2;
         this.camera.right = frustumHeight * aspect / 2;
@@ -2908,6 +3527,8 @@ export class KnightLoreStage0Renderer {
         this.playerPointerFallbackMaterial.dispose();
         this.roomEdges.geometry.dispose();
         this.roomEdges.material.dispose();
+        this.pruneSpriteTexturePreviewCache(new Set());
+        if (this.full3DBackgroundRenderer) this.full3DBackgroundRenderer.dispose();
         this.renderer.dispose();
         if (this.diagnosticsContainer) {
             this.summaryElement.remove();

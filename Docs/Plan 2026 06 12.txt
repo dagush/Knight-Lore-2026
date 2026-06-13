@@ -1,0 +1,32 @@
+This is the analysis for the wall textura dewarping step
+========================================================
+
+I’ve read `Docs/Memoria_RicardGalvany_short.pdf`, especially Section 5.4, and checked it against [Docs/KL 2006/main.c](/Users/dagush/Dpt.%20IMAE%20Dropbox/Gustavo%20Patow/SRC/Knight-Lore-2026/Docs/KL%202006/main.c:53) plus the `*_*_*.c` files.
+
+**Findings**
+Section 5.4 says Ricard captured the original wall sprites, stored them as graphic files, then used OpenGL texture coordinates to correct/dewarp their isometric distortion. Section 4.9 is the clean source for how to regenerate those sprite images from memory: sprite pointer table at `0x7112`, sprite data at `0x728A`, width/height followed by image/mask byte pairs.
+
+The 2006 `*_*_*.c` files are not really source data. They are GIMP RGBA C dumps, already baked as pixels. Their naming looks like:
+
+`a..f` = wall fragment type
+`i/d` = left/right wall orientation
+`v/a/r/b` = green/yellow/pink/blue room colour
+
+Ricard’s actual OpenGL dewarping is in hardcoded textured quads in `dibujarParedHabGrande`, `dibujarParedHabEstrechaA`, and `dibujarParedHabEstrechaB`. Important strict point: although the document says the background drawing examines dynamic room data, the 2006 code reads wall dynamic records but the final textured wall placement is mostly hardcoded per room shape and colour. So the old code is a reference, not a clean architecture.
+
+**Recommendation**
+I agree with you: the didactically better path is option 1, extracting textures from game memory. But I recommend a hybrid first pass:
+
+1. Use Ricard’s C/BMP assets only as an oracle/reference.
+2. Implement a clean sprite texture extractor from static memory: `0x7112..0x7289` pointers and `0x728A..0xAF6B` sprite data.
+3. Generate canvas/Three.js textures from decoded sprites and room colour.
+4. Recreate Ricard’s dewarp as Three.js UV-mapped quads.
+5. Compare extracted textures against Ricard’s baked `a..f` assets.
+6. Only then attach the textures to the Full 3D room walls.
+
+This keeps the code explainable while avoiding a blind leap. The good news: our worker already captures the sprite static range once, so this should not need per-frame static copying.
+
+**Strict Doubts**
+The hardest part is not reading the sprite bytes; that is documented. The hard part is identifying exactly which decoded wall sprite corresponds to Ricard’s `a..f` fragments and matching the UV quad layout for the three room shapes. Also, direct translation of `main.c` would preserve historical quirks, including at least one suspicious texture typo around `f_d_r` using `f_d_a.pixel_data`.
+
+So: yes, proceed with memory extraction, but use Ricard’s baked assets as a visual test oracle. No code changes made yet.
