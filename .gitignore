@@ -46,3 +46,6 @@ yarn-error.log*
 *.tzx
 *.scr
 *.dsk
+
+# Local reference PDFs that are too large/noisy for repository pushes.
+/Docs/Memoria_RicardGalvany_short.pdf

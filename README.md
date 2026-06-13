@@ -1,12 +1,9 @@
 # Knight Lore 2026
 
 A modification/hack of the Knight Lore for ZX Spectrum, running 
-on the JSSpeccy 3 emulator for the browser (available at 
-https://github.com/gasman/jsspeccy3)
-
-Now, this project is simply a rewrite of the work originally done by Ricard 
-Galvany. You can find the original project, called Knight Lore 
-2006, here:
+on the JSSpeccy 3 emulator for the browser. This project is simply 
+a rewrite of the work originally done by Ricard Galvany. You can 
+find the original project, called Knight Lore 2006, here:
 https://ima.udg.edu/~dagush/Projects/KnightLore2006/
 
 IMPORTANT: I am using the personal project as a test of "vibe coding", and
@@ -24,4 +21,6 @@ Sources:
 * For some extra help (disassembled code):
     https://github.com/jonsole/knightlore/blob/main/knightlore.asm
 * The original project:
-  https://ima.udg.edu/~dagush/Projects/KnightLore2006/
+    https://ima.udg.edu/~dagush/Projects/KnightLore2006/
+* JSSpeccy 3 emulator:
+    https://github.com/gasman/jsspeccy3
