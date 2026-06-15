@@ -70,6 +70,7 @@ const PORTCULLIS_PANEL_SIZE = blockUnitsToSceneSize({x: 2, y: 0.1, z: 2});
 const PORTCULLIS_BAR_WIDTH = blockUnitsToSceneSize({x: 0.1, y: 0.1, z: 0.1}).width;
 const TEXTURED_BACKGROUND_WALL_OFFSET = 0.28;
 const ARCH_OUTWARD_OFFSET_FALLBACK = 2;
+const ARCH_EXTRA_OUTWARD_OFFSET = blockUnitsToSceneSize({x: 0.2}).width;
 const WALL_TEXTURE_LEFT_REGISTRATION_OFFSET = 2;
 const EXTRA_WALL_TEXTURE_LEFT_REGISTRATION_OFFSETS = new Map([
     [0x0a, WALL_TEXTURE_LEFT_REGISTRATION_OFFSET * 2],
@@ -329,11 +330,13 @@ export class KnightLoreFull3DBackgroundRenderer {
         });
     }
 
-    createBinaryWallTextureCanvas(sourceCanvas) {
+    createBinaryWallTextureCanvas(sourceCanvas, spriteId) {
+        const transparentBackground = isWoodenTextureSprite(spriteId);
         return createBinaryWallTextureCanvas(
             sourceCanvas,
             rgbFromHexColor(spectrumInkColorFromAttribute(this.colourAttribute)),
-            this.wallTextureBinaryThreshold
+            this.wallTextureBinaryThreshold,
+            {transparentBackground}
         );
     }
 
@@ -363,6 +366,7 @@ export class KnightLoreFull3DBackgroundRenderer {
             ? ricardWallTextureFamilyFromSpriteId(texture.id)
             : null;
         const binaryThreshold = normalizedWallTextureBinaryThreshold(this.wallTextureBinaryThreshold);
+        const transparentPaper = isWoodenTextureSprite(texture.id);
         const cacheKey = [
             'background',
             texture.id,
@@ -371,6 +375,7 @@ export class KnightLoreFull3DBackgroundRenderer {
             dewarpFamily ? 'texture-dewarp-' + dewarpFamily : 'raw-texture',
             dewarpFamily ? Math.round(normalizedWallTextureDewarpScale(this.wallTextureDewarpScale) * 100) : '--',
             binaryThreshold > 0 ? 'binary-' + binaryThreshold : 'continuous',
+            transparentPaper ? 'transparent-paper' : 'opaque-paper',
             texture.dataAddress,
             texture.dataEndAddress,
             texture.widthPixels,
@@ -392,7 +397,7 @@ export class KnightLoreFull3DBackgroundRenderer {
             : null;
         const continuousImageCanvas = dewarpedImageCanvas || imageCanvas;
         const binaryImageCanvas = binaryThreshold > 0
-            ? this.createBinaryWallTextureCanvas(continuousImageCanvas)
+            ? this.createBinaryWallTextureCanvas(continuousImageCanvas, texture.id)
             : null;
         const finalImageCanvas = binaryImageCanvas || continuousImageCanvas;
 
@@ -406,6 +411,7 @@ export class KnightLoreFull3DBackgroundRenderer {
             yFlipped,
             textureDewarped: Boolean(dewarpedImageCanvas),
             textureBinaryThresholded: Boolean(binaryImageCanvas),
+            textureTransparentPaper: transparentPaper,
             binaryThreshold,
             dewarpFamily,
         };
@@ -537,6 +543,7 @@ export class KnightLoreFull3DBackgroundRenderer {
         const material = new THREE.MeshBasicMaterial({
             map: textureRecord.imageTexture,
             side: THREE.DoubleSide,
+            alphaTest: textureRecord.textureTransparentPaper ? 0.5 : 0,
             polygonOffset: true,
             polygonOffsetFactor: -1,
             polygonOffsetUnits: -1,
@@ -560,6 +567,9 @@ export class KnightLoreFull3DBackgroundRenderer {
         }
         if (textureRecord.textureBinaryThresholded) {
             mesh.userData.wallTextureBinaryThreshold = textureRecord.binaryThreshold;
+        }
+        if (textureRecord.textureTransparentPaper) {
+            mesh.userData.textureTransparentPaper = true;
         }
 
         this.activeTextureKeys.add(textureRecord.key);
@@ -680,7 +690,9 @@ export class KnightLoreFull3DBackgroundRenderer {
             const archBounds = new THREE.Box3().setFromObject(arch);
             const archSize = new THREE.Vector3();
             archBounds.getSize(archSize);
-            const outwardOffset = archSize.z > 0 ? archSize.z * 0.5 : ARCH_OUTWARD_OFFSET_FALLBACK;
+            const outwardOffset = (
+                archSize.z > 0 ? archSize.z * 0.5 : ARCH_OUTWARD_OFFSET_FALLBACK
+            ) + ARCH_EXTRA_OUTWARD_OFFSET;
             arch.position.z += outwardOffset;
             arch.userData.outwardOffset = outwardOffset;
             group.add(arch);
@@ -763,6 +775,41 @@ export class KnightLoreFull3DBackgroundRenderer {
         return group.children.length;
     }
 
+    addMappedPortcullisRecords(background, index) {
+        if (!this.mapPosition || !Array.isArray(background.records) || background.records.length === 0) {
+            return 0;
+        }
+
+        const group = new THREE.Group();
+        background.records.forEach((record, recordIndex) => {
+            const position = this.mapPosition(record.position);
+            if (!position) return;
+
+            const object = createFull3DObjectModel(record.spriteId, {
+                dimensions: record.dimensions,
+                semanticCategory: 'static-portcullis',
+            });
+            if (!object) return;
+
+            object.position.copy(position.vector);
+            object.userData.backgroundId = background.id;
+            object.userData.backgroundCategory = background.category;
+            object.userData.backgroundRecordIndex = recordIndex;
+            object.userData.spriteId = record.spriteId;
+            object.userData.staticBackgroundModel = true;
+            object.userData.liveDynamicSource = Boolean(record.liveDynamicSource);
+            group.add(object);
+        });
+
+        if (group.children.length === 0) return 0;
+
+        group.userData.backgroundId = background.id;
+        group.userData.backgroundCategory = background.category;
+        group.userData.staticPortcullisModelCount = group.children.length;
+        this.group.add(group);
+        return group.children.length;
+    }
+
     addFixedBackgroundMarker(background, index) {
         const markerInfo = fixedBackgroundMarker(background);
         const group = new THREE.Group();
@@ -830,7 +877,9 @@ export class KnightLoreFull3DBackgroundRenderer {
                 if (texturedRecordCount === 0) this.addStaticRecordBoxes(background, index);
                 break;
             case 'portcullis':
-                this.addOpeningFrame(background, index, true);
+                if (this.addMappedPortcullisRecords(background, index) === 0) {
+                    this.addOpeningFrame(background, index, true);
+                }
                 break;
             case 'tree-filler':
                 if (texturedRecordCount === 0) this.addSidePatch(background, index);

@@ -901,3 +901,117 @@ Strict caveats:
 - Wooden rooms now have the right texture families and no stone arches, but broad gameplay coverage is still needed.
 - The Full 3D view is much closer to the target, but many dynamic enemies and decorative objects still use simple proxy geometry.
 - Schematic mode remains the trusted diagnostic view; Full 3D is now the main visual target, but it should still be judged against Schematic and the emulator when new object classes are added.
+
+## 2026-06-14 - Full 3D Object Polish, Sprite-Driven Balls, and Portcullis Cleanup
+
+Context:
+
+- Continued the final Full 3D stage after the wall/wood texture work.
+- The focus was deliberately small and visual:
+  - improve specific object proxy models;
+  - remove overactive procedural behaviour;
+  - make more decisions directly from sprite ids and decoded working-memory records;
+  - keep the Schematic renderer stable as the diagnostic reference.
+
+Wooden texture transparency:
+
+- Changed wooden texture rendering so the black/background part of wooden sprites is transparent.
+- This fixed the unpleasant visual effect when the player or other objects pass through or behind wooden entrances.
+- The change applies to the wooden texture family only; stone wall textures remain opaque.
+
+Static and dynamic object model polish:
+
+- Reworked sprite `0x17` as a spike slab:
+  - approximately `1 x 1 x 0.1` block units;
+  - a low slab with small upward cone spikes;
+  - intentionally simple, but closer to the in-game visual meaning than the previous generic proxy.
+- Reworked sprite `0x3F` as a spike ball:
+  - a true `1 x 1 x 1` sphere;
+  - radial cone spikes distributed around it.
+- Corrected sprite `0x06` after visual discussion:
+  - it is not a smooth sphere;
+  - it is now treated as a rounded block/rock with bumps, rough edges, and crack lines.
+- Kept the models primitive-based in Three.js, but moved several objects away from generic boxes toward recognizable game semantics.
+
+Green ball animation:
+
+- Added the ball animation sprites to the focused sprite preview atlas:
+  - `0xB2`;
+  - `0xB3`;
+  - `0xB6`;
+  - `0xB7`.
+- First attempted a procedural bounce based on previous-frame velocity and direction changes.
+- Rejected that strategy because it produced too much visible bounce and could not be justified once the original sprite sequence was identified.
+- Final decision:
+  - the 3D ball shape is selected only from the current sprite id;
+  - there is no velocity-triggered bounce, timer, or frame-history deformation left.
+- Final mapping:
+  - `0xB2` and `0xB6`: round ball;
+  - `0xB3` and `0xB7`: oval/bounce-frame ball.
+- Final proportions came from Gustavo's pixel-counting of the decoded sprites:
+  - round ball: `24 x 19`;
+  - oval frame: `26 x 18`, because the active ball pixels are two pixels wider despite the wider sprite canvas containing empty space.
+- The Full 3D oval frame now uses:
+  - horizontal scale `26 / 24`;
+  - vertical scale `18 / 19`;
+  - the same scale in both horizontal directions.
+- Gustavo visually confirmed the resulting balls as correct.
+
+Portcullis cleanup:
+
+- Found that only part of the code recognized `0x08` and `0x09` as portcullis sprites.
+- Updated the portcullis family to use the documented full range:
+  - `0x08..0x0B`.
+- Applied this in both:
+  - the semantic/Schematic classifier;
+  - the Full 3D object factory.
+- Changed Full 3D static-background portcullis handling so it uses mapped decoded records when available.
+- Fed the same live portcullis substitution into Full 3D that the Schematic renderer already used.
+- This fixed the case of a room with two portcullises where one was not moving like its corresponding sprite.
+- Gustavo confirmed that the portcullis issue is solved.
+
+Arch spacing:
+
+- Pushed Full 3D arch geometry farther outside the room.
+- Added an extra outward offset of `0.2` block width, equivalent to `1.6` scene units.
+- This is added on top of the existing half-model outward offset, so the arch keeps its registration but penetrates the playable volume less.
+
+Renderer/data-path notes:
+
+- The Schematic renderer was not intentionally changed except for the portcullis-id recognition path.
+- Full 3D dynamic objects continue to be rebuilt from current working-memory records.
+- The final ball behaviour is intentionally sprite-id driven rather than motion driven.
+- The final portcullis behaviour is driven by decoded working-memory/static-background comparison rather than a guessed room-side rule.
+
+Cache and workbench:
+
+- Continued using `static/knight-lore-workbench.html` as the canonical workbench file.
+- `_tests/index.html` remains a symlink to that canonical workbench file.
+- Bumped the workbench cache key after visible renderer changes.
+- Final cache key for this session: `knightlore-stage6-20260614i`.
+
+Verification:
+
+- Rebuilt with webpack after the runtime changes.
+- Ran `git diff --check`.
+- Ran the emulator CPU regression test.
+- Used browser smoke tests against `http://127.0.0.1:8000/` to verify:
+  - the new cache keys load;
+  - the workbench still initializes;
+  - no page errors appear on reload.
+- Gustavo performed the key visual validation:
+  - wooden transparency;
+  - spike slab;
+  - spike ball;
+  - rounded rock/block;
+  - green ball round/oval sprite proportions;
+  - two-portcullis room behaviour;
+  - arch spacing improvement.
+
+Strict caveats:
+
+- These object models are still proxy geometry, not final textured or sculpted assets.
+- The green ball is now faithful to the decoded sprite proportions, but it is still represented as a scaled 3D sphere rather than a textured sprite/model hybrid.
+- The spike placement on `0x17` and `0x3F` is hand-authored and visually plausible, not extracted from original geometry data.
+- The rock `0x06` is a visual approximation based on the game appearance, not a recovered original model.
+- More dynamic enemy classes still need dedicated treatment.

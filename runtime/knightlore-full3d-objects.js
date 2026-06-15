@@ -30,12 +30,13 @@ export const BASIC_BLOCK_SCENE_SIZE = Object.freeze(blockUnitsToSceneSize());
 const RICARD_ARCH_X_SCALE = 0.94;
 const BLOCK_SPRITE_IDS = new Set([0x07, 0x36, 0x37, 0x3e, 0x5b, 0x8f]);
 const ROCK_SPRITE_IDS = new Set([0x06]);
-const PORTCULLIS_SPRITE_IDS = new Set([0x08, 0x09]);
+const PORTCULLIS_SPRITE_IDS = new Set([0x08, 0x09, 0x0a, 0x0b]);
 const TABLE_SPRITE_IDS = new Set([0x54]);
 const CHEST_SPRITE_IDS = new Set([0x55]);
 const YELLOW_RED_FIRE_SPRITE_IDS = new Set([0xb5, 0xb1, 0x57]);
 const RED_YELLOW_FIRE_SPRITE_IDS = new Set([0xb4, 0xb0, 0x56]);
-const GREEN_BALL_SPRITE_IDS = new Set([0xb2, 0xb3, 0xb6, 0xb7]);
+const ROUND_GREEN_BALL_SPRITE_IDS = new Set([0xb2, 0xb6]);
+const BOUNCING_GREEN_BALL_SPRITE_IDS = new Set([0xb3, 0xb7]);
 
 function normalizedSpriteId(spriteId) {
     return Number.isFinite(spriteId) ? spriteId & 0xff : null;
@@ -247,17 +248,44 @@ export function createBrickPrismModel({
     return group;
 }
 
-function createSpikeModel() {
+function createSpikeSlabModel() {
     const group = new THREE.Group();
-    const height = RICARD_OPENGL_UNIT * 0.4;
-    const radius = RICARD_OPENGL_UNIT * 0.2;
-    const mesh = new THREE.Mesh(
-        new THREE.ConeGeometry(radius, height, 24),
-        material(0x2563eb, 0.96)
+    const slabSize = blockUnitsToSceneSize({x: 1, y: 1, z: 0.1});
+    addBoxWithEdges(
+        group,
+        slabSize,
+        0x374151,
+        0.94,
+        new THREE.Vector3(0, slabSize.height / 2, 0),
+        0x94a3b8,
+        0.5
     );
-    mesh.position.y = height / 2;
-    group.add(mesh);
-    group.userData.full3dKind = 'spikes';
+
+    [
+        {x: -0.32, z: -0.28, height: 0.42, radius: 0.08},
+        {x: 0.18, z: -0.33, height: 0.56, radius: 0.1},
+        {x: 0.36, z: 0.12, height: 0.38, radius: 0.075},
+        {x: -0.1, z: 0.28, height: 0.48, radius: 0.085},
+        {x: -0.36, z: 0.2, height: 0.34, radius: 0.07},
+        {x: 0.06, z: 0.0, height: 0.62, radius: 0.105},
+    ].forEach(spike => {
+        const spikeHeight = blockUnitsToSceneSize({z: spike.height}).height;
+        const spikeRadius = blockUnitsToSceneSize({x: spike.radius}).width;
+        const mesh = new THREE.Mesh(
+            new THREE.ConeGeometry(spikeRadius, spikeHeight, 18),
+            material(0x9ca3af, 0.98)
+        );
+        mesh.position.set(
+            spike.x * slabSize.width,
+            slabSize.height + spikeHeight / 2,
+            spike.z * slabSize.depth
+        );
+        group.add(mesh);
+    });
+
+    group.userData.full3dKind = 'spike-slab';
+    group.userData.full3dBlockSize = {x: 1, y: 1, z: 0.1};
+    group.userData.full3dSource = 'spike block sprite, 1 x 1 x 0.1 slab with upward cone spikes';
     return group;
 }
 
@@ -273,18 +301,175 @@ function createSphereModel(kind, color, radius) {
     return group;
 }
 
-function createBlockUnitSphereModel(kind, color) {
+function createBlockUnitSphereModel(kind, color, scale = {x: 1, y: 1, z: 1}) {
     const size = blockUnitsToSceneSize({x: 1, y: 1, z: 1});
+    const radius = Math.min(size.width, size.height, size.depth) / 2;
     const group = new THREE.Group();
     const mesh = new THREE.Mesh(
-        new THREE.SphereGeometry(0.5, 24, 16),
+        new THREE.SphereGeometry(radius, 24, 16),
         material(color, 0.96)
     );
-    mesh.scale.set(size.width, size.height, size.depth);
-    mesh.position.y = size.height / 2;
+    mesh.scale.set(scale.x, scale.y, scale.z);
+    mesh.position.y = radius * scale.y;
     group.add(mesh);
     group.userData.full3dKind = kind;
     group.userData.full3dBlockSize = {x: 1, y: 1, z: 1};
+    group.userData.full3dSphereRadius = radius;
+    group.userData.full3dSphereScale = {...scale};
+    return group;
+}
+
+function createRoundedRockGeometry(width, height, depth, radius) {
+    const geometry = new THREE.BoxGeometry(width, height, depth, 5, 4, 5);
+    const position = geometry.attributes.position;
+    const half = new THREE.Vector3(width / 2, height / 2, depth / 2);
+    const inner = new THREE.Vector3(
+        Math.max(0.01, half.x - radius),
+        Math.max(0.01, half.y - radius),
+        Math.max(0.01, half.z - radius)
+    );
+    const vertex = new THREE.Vector3();
+    const anchor = new THREE.Vector3();
+    const offset = new THREE.Vector3();
+
+    for (let index = 0; index < position.count; index++) {
+        vertex.fromBufferAttribute(position, index);
+        anchor.set(
+            THREE.MathUtils.clamp(vertex.x, -inner.x, inner.x),
+            THREE.MathUtils.clamp(vertex.y, -inner.y, inner.y),
+            THREE.MathUtils.clamp(vertex.z, -inner.z, inner.z)
+        );
+        offset.copy(vertex).sub(anchor);
+        if (offset.lengthSq() > 0.0001) {
+            offset.normalize().multiplyScalar(radius);
+            vertex.copy(anchor).add(offset);
+        }
+        const roughness = 1 + 0.035 * Math.sin(index * 5.17);
+        vertex.x *= roughness;
+        vertex.y *= 1 + 0.025 * Math.sin(index * 3.41 + 0.4);
+        vertex.z *= 1 + 0.035 * Math.cos(index * 4.73);
+        position.setXYZ(index, vertex.x, vertex.y, vertex.z);
+    }
+
+    geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    return geometry;
+}
+
+function addRockCrack(group, points, color = 0x111827) {
+    const positions = [];
+    for (let index = 0; index < points.length - 1; index++) {
+        positions.push(
+            points[index].x, points[index].y, points[index].z,
+            points[index + 1].x, points[index + 1].y, points[index + 1].z
+        );
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    group.add(new THREE.LineSegments(geometry, edgeMaterial(color, 0.82)));
+}
+
+function createRockBlockModel() {
+    const size = blockUnitsToSceneSize({x: 1, y: 1, z: 1});
+    const group = new THREE.Group();
+    const geometry = createRoundedRockGeometry(
+        size.width * 0.94,
+        size.height * 0.9,
+        size.depth * 0.94,
+        Math.min(size.width, size.height, size.depth) * 0.18
+    );
+    const mesh = new THREE.Mesh(geometry, material(0x7f858d, 0.96));
+    mesh.position.y = size.height * 0.45;
+    group.add(mesh);
+    group.add(new THREE.LineSegments(
+        new THREE.EdgesGeometry(geometry, 38),
+        edgeMaterial(0x1f2937, 0.42)
+    ));
+    group.children[group.children.length - 1].position.copy(mesh.position);
+
+    const bumpMaterial = material(0x9aa0a8, 0.82);
+    [
+        {position: [-0.28, 0.82, -0.22], scale: [0.12, 0.05, 0.1]},
+        {position: [0.22, 0.7, 0.3], scale: [0.1, 0.045, 0.13]},
+        {position: [-0.4, 0.42, 0.22], scale: [0.075, 0.055, 0.1]},
+        {position: [0.36, 0.36, -0.3], scale: [0.08, 0.05, 0.075]},
+    ].forEach(bump => {
+        const meshBump = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), bumpMaterial);
+        meshBump.position.set(
+            bump.position[0] * size.width,
+            bump.position[1] * size.height,
+            bump.position[2] * size.depth
+        );
+        meshBump.scale.set(
+            bump.scale[0] * size.width,
+            bump.scale[1] * size.height,
+            bump.scale[2] * size.depth
+        );
+        group.add(meshBump);
+    });
+
+    addRockCrack(group, [
+        new THREE.Vector3(-size.width * 0.28, size.height * 0.91, -size.depth * 0.18),
+        new THREE.Vector3(-size.width * 0.06, size.height * 0.94, -size.depth * 0.05),
+        new THREE.Vector3(size.width * 0.18, size.height * 0.9, size.depth * 0.06),
+        new THREE.Vector3(size.width * 0.31, size.height * 0.88, size.depth * 0.24),
+    ]);
+    addRockCrack(group, [
+        new THREE.Vector3(size.width * 0.47, size.height * 0.58, -size.depth * 0.2),
+        new THREE.Vector3(size.width * 0.49, size.height * 0.43, -size.depth * 0.02),
+        new THREE.Vector3(size.width * 0.46, size.height * 0.28, size.depth * 0.18),
+    ]);
+
+    group.userData.full3dKind = 'rock-block';
+    group.userData.full3dBlockSize = {x: 1, y: 1, z: 1};
+    group.userData.full3dSource = 'rock sprite, rounded block with bumps and crack lines';
+    return group;
+}
+
+function createSpikeBallModel() {
+    const size = blockUnitsToSceneSize({x: 1, y: 1, z: 1});
+    const radius = Math.min(size.width, size.height, size.depth) / 2;
+    const group = new THREE.Group();
+    const inner = new THREE.Group();
+    inner.position.y = radius;
+    group.add(inner);
+
+    inner.add(new THREE.Mesh(
+        new THREE.SphereGeometry(radius, 24, 16),
+        material(0xef4444, 0.96)
+    ));
+
+    const baseAxis = new THREE.Vector3(0, 1, 0);
+    const directions = [
+        [1, 0, 0],
+        [-1, 0.08, 0.02],
+        [0, 0.12, 1],
+        [0.04, 0.02, -1],
+        [0.38, 0.82, 0.34],
+        [-0.5, 0.72, -0.28],
+        [0.58, 0.42, -0.7],
+        [-0.62, 0.32, 0.62],
+        [0.26, -0.18, 0.95],
+        [-0.34, -0.16, -0.92],
+    ];
+
+    directions.forEach((values, index) => {
+        const direction = new THREE.Vector3(...values).normalize();
+        const spikeHeight = radius * (0.32 + (index % 3) * 0.05);
+        const spikeRadius = radius * (0.09 + (index % 2) * 0.02);
+        const mesh = new THREE.Mesh(
+            new THREE.ConeGeometry(spikeRadius, spikeHeight, 14),
+            material(0xfca5a5, 0.96)
+        );
+        mesh.quaternion.setFromUnitVectors(baseAxis, direction);
+        mesh.position.copy(direction).multiplyScalar(radius + spikeHeight / 2);
+        inner.add(mesh);
+    });
+
+    group.userData.full3dKind = 'spike-ball';
+    group.userData.full3dBlockSize = {x: 1, y: 1, z: 1};
+    group.userData.full3dSource = 'spike ball sprite, 1 block-unit sphere with radial cone spikes';
     return group;
 }
 
@@ -527,15 +712,14 @@ export function createFull3DObjectModel(spriteId, opts = {}) {
     }
 
     if (id === 0x17) {
-        const object = createSpikeModel();
+        const object = createSpikeSlabModel();
         object.userData.full3dRecognized = true;
         return object;
     }
 
     if (ROCK_SPRITE_IDS.has(id)) {
-        const object = createBlockUnitSphereModel('rock', 0x8a8f98);
+        const object = createRockBlockModel();
         object.userData.full3dRecognized = true;
-        object.userData.full3dSource = 'rock sprite, 1 block-unit diameter sphere';
         return object;
     }
 
@@ -561,7 +745,7 @@ export function createFull3DObjectModel(spriteId, opts = {}) {
     }
 
     if (id === 0x3f) {
-        const object = createSphereModel('spike-ball', 0xef4444, RICARD_OPENGL_UNIT * 0.25);
+        const object = createSpikeBallModel();
         object.userData.full3dRecognized = true;
         return object;
     }
@@ -578,10 +762,21 @@ export function createFull3DObjectModel(spriteId, opts = {}) {
         return object;
     }
 
-    if (GREEN_BALL_SPRITE_IDS.has(id)) {
+    if (ROUND_GREEN_BALL_SPRITE_IDS.has(id)) {
         const object = createBlockUnitSphereModel('green-ball', 0x22c55e);
         object.userData.full3dRecognized = true;
         object.userData.full3dSource = 'ball sprite, 1 block-unit diameter sphere';
+        return object;
+    }
+
+    if (BOUNCING_GREEN_BALL_SPRITE_IDS.has(id)) {
+        const object = createBlockUnitSphereModel(
+            'green-ball-bouncing-frame',
+            0x22c55e,
+            {x: 26 / 24, y: 18 / 19, z: 26 / 24}
+        );
+        object.userData.full3dRecognized = true;
+        object.userData.full3dSource = 'ball bounce-frame sprite, static 24 x 18 model selected by sprite id';
         return object;
     }
 

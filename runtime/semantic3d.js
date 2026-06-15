@@ -83,7 +83,7 @@ const PLAYER_POINTER_OFFSET = new THREE.Vector3(
 const PLAYER_HEAD_MAX_HORIZONTAL_OFFSET = 12;
 const PLAYER_MOVEMENT_EPSILON = 0.6;
 const OBJECT_WIREFRAME_MAX_RECORDS = 96;
-const SCHEMATIC_PORTCULLIS_SPRITE_IDS = new Set([0x08, 0x09]);
+const SCHEMATIC_PORTCULLIS_SPRITE_IDS = new Set([0x08, 0x09, 0x0a, 0x0b]);
 const SCHEMATIC_PORTCULLIS_PANEL_SIZE = blockUnitsToSceneSize({x: 2, y: 0.1, z: 2});
 const ITEM_MARKER_SIZE = 5;
 const SPELL_MARKER_SIZE = 6;
@@ -241,6 +241,12 @@ const SPRITE_TEXTURE_PREVIEW_GROUPS = [
         label: 'wooden walls',
         ids: [
             0x80, 0x81, 0x82,
+        ],
+    },
+    {
+        label: 'ball sprites',
+        ids: [
+            0xb2, 0xb3, 0xb6, 0xb7,
         ],
     },
 ];
@@ -749,7 +755,7 @@ function classifyDynamicObjectRecord(record) {
         return {
             label: 'portcullis',
             category: 'portcullis',
-            source: 'working-memory visual slot sprite 0x08/0x09',
+            source: 'working-memory visual slot sprite 0x08..0x0B',
             objectIdHits,
         };
     }
@@ -1449,17 +1455,17 @@ export class KnightLoreStage0Renderer {
         }
 
         const backgrounds = location.backgrounds || [];
-        const schematicBackgrounds = schematicBackgroundsWithLivePortcullises(
+        const backgroundsWithLivePortcullises = schematicBackgroundsWithLivePortcullises(
             backgrounds,
             room.backgroundComparison
         );
         const mapPosition = position => mapKnightLorePositionToScene(position, this.roomDimensions);
-        this.schematicBackgroundRenderer.render(schematicBackgrounds, {
+        this.schematicBackgroundRenderer.render(backgroundsWithLivePortcullises, {
             roomDimensions: this.roomDimensions,
             roomColor: roomColorFromAttribute(room ? room.colourAttribute : null),
             mapPosition,
         });
-        const full3DResult = this.full3DBackgroundRenderer.render(backgrounds, {
+        const full3DResult = this.full3DBackgroundRenderer.render(backgroundsWithLivePortcullises, {
             roomDimensions: this.roomDimensions,
             colourAttribute: room ? room.colourAttribute : null,
             latestFrame: this.latestFrame,
@@ -3081,8 +3087,9 @@ export class KnightLoreStage0Renderer {
                 + '</p>',
             '<p class="knight-lore-stage2-note">'
                 + 'Focused atlas: confirmed wall sprites 0x0A..0x0F, wooden entrances 0x04 and 0x05, '
-                + 'and wooden walls 0x80..0x82. Wall sprites 0x0A..0x0F and all wooden texture '
-                + 'sprites are configured for vertical flipping when displayed or reused.'
+                + 'wooden walls 0x80..0x82, and ball animation candidates 0xB2, 0xB3, 0xB6, '
+                + '0xB7. Wall sprites 0x0A..0x0F and all wooden texture sprites are configured '
+                + 'for vertical flipping when displayed or reused.'
                 + '</p>',
             '<p class="knight-lore-stage2-note">'
                 + 'Preview canvas uses the current room attribute '

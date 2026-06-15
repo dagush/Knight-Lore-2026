@@ -114,12 +114,13 @@ export function createIsometricSlopeCorrectedCanvas(sourceCanvas, opts = {}) {
     return canvas;
 }
 
-export function createBinaryWallTextureCanvas(sourceCanvas, wallColor, threshold) {
+export function createBinaryWallTextureCanvas(sourceCanvas, wallColor, threshold, opts = {}) {
     if (!sourceCanvas || typeof document === 'undefined') return null;
     const thresholdValue = Number.isFinite(threshold)
         ? Math.min(255, Math.max(1, threshold))
         : 0;
     if (thresholdValue <= 0) return null;
+    const transparentBackground = Boolean(opts.transparentBackground);
 
     const wall = typeof wallColor === 'number'
         ? {
@@ -165,7 +166,7 @@ export function createBinaryWallTextureCanvas(sourceCanvas, wallColor, threshold
             outputData.data[pixel] = isWall ? wall.r : 0;
             outputData.data[pixel + 1] = isWall ? wall.g : 0;
             outputData.data[pixel + 2] = isWall ? wall.b : 0;
-            outputData.data[pixel + 3] = 0xff;
+            outputData.data[pixel + 3] = isWall || !transparentBackground ? 0xff : 0x00;
         }
     }
 
