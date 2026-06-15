@@ -37,7 +37,68 @@ const YELLOW_RED_FIRE_SPRITE_IDS = new Set([0xb5, 0xb1, 0x57]);
 const RED_YELLOW_FIRE_SPRITE_IDS = new Set([0xb4, 0xb0, 0x56]);
 const ROUND_GREEN_BALL_SPRITE_IDS = new Set([0xb2, 0xb6]);
 const BOUNCING_GREEN_BALL_SPRITE_IDS = new Set([0xb3, 0xb7]);
-
+const SPELL_CYCLE_SPRITE_IDS = new Set([0xa0, 0xa1, 0xa2, 0xa3]);
+const REPELLING_SPELL_SPRITE_IDS = new Set([0xa4, 0xa5, 0xa6, 0xa7]);
+const SPELL_CYCLE_BUBBLE_SCALE = 1.55;
+const REPELLING_SPELL_RHOMBUS_SCALE = 2.2;
+const REPELLING_SPELL_DISTRIBUTIONS = new Map([
+    [0xa4, [
+        {x: -0.3, y: 0.18, z: -0.24, size: 0.18, rx: 0.15, ry: 0.35, rz: 0.55},
+        {x: 0.12, y: 0.18, z: 0.3, size: 0.13, rx: -0.4, ry: 0.15, rz: -0.2},
+        {x: 0.36, y: 0.3, z: -0.12, size: 0.16, rx: 0.3, ry: -0.55, rz: 0.8},
+        {x: -0.42, y: 0.42, z: 0.18, size: 0.11, rx: -0.1, ry: 0.8, rz: -0.75},
+        {x: -0.06, y: 0.48, z: -0.36, size: 0.2, rx: 0.45, ry: 0.2, rz: 0.1},
+        {x: 0.3, y: 0.58, z: 0.2, size: 0.14, rx: -0.55, ry: -0.2, rz: 0.65},
+        {x: -0.22, y: 0.72, z: 0.34, size: 0.17, rx: 0.25, ry: -0.65, rz: -0.35},
+        {x: 0.1, y: 0.84, z: -0.02, size: 0.12, rx: -0.2, ry: 0.55, rz: 1.05},
+        {x: 0.42, y: 0.86, z: -0.34, size: 0.1, rx: 0.55, ry: 0.4, rz: -0.6},
+        {x: -0.02, y: 0.34, z: 0.06, size: 0.15, rx: -0.35, ry: 0.75, rz: 0.3},
+        {x: -0.36, y: 0.62, z: -0.06, size: 0.13, rx: 0.7, ry: -0.1, rz: -0.95},
+        {x: 0.22, y: 0.76, z: 0.36, size: 0.11, rx: -0.45, ry: 0.25, rz: 0.15},
+    ]],
+    [0xa5, [
+        {x: -0.34, y: 0.22, z: -0.32, size: 0.12, rx: 0.2, ry: 0.1, rz: 0.15},
+        {x: -0.08, y: 0.18, z: 0.28, size: 0.16, rx: -0.15, ry: 0.5, rz: 0.45},
+        {x: 0.31, y: 0.25, z: -0.06, size: 0.13, rx: 0.4, ry: -0.2, rz: 0.8},
+        {x: -0.26, y: 0.48, z: 0.12, size: 0.19, rx: 0.1, ry: 0.85, rz: -0.2},
+        {x: 0.12, y: 0.55, z: -0.34, size: 0.15, rx: -0.5, ry: 0.15, rz: 0.2},
+        {x: 0.35, y: 0.66, z: 0.3, size: 0.11, rx: 0.3, ry: 0.65, rz: -0.7},
+        {x: -0.05, y: 0.82, z: 0.02, size: 0.2, rx: -0.25, ry: -0.35, rz: 0.95},
+        {x: -0.43, y: 0.36, z: 0.34, size: 0.1, rx: 0.62, ry: -0.1, rz: 0.72},
+        {x: 0.08, y: 0.34, z: 0.02, size: 0.14, rx: -0.25, ry: 0.75, rz: -0.55},
+        {x: 0.42, y: 0.5, z: -0.34, size: 0.12, rx: 0.15, ry: -0.7, rz: 0.35},
+        {x: -0.28, y: 0.72, z: -0.18, size: 0.16, rx: -0.55, ry: 0.25, rz: -0.95},
+        {x: 0.22, y: 0.88, z: 0.18, size: 0.13, rx: 0.45, ry: 0.45, rz: 0.05},
+    ]],
+    [0xa6, [
+        {x: -0.38, y: 0.26, z: 0.18, size: 0.14, rx: -0.35, ry: 0.25, rz: 0.65},
+        {x: -0.14, y: 0.16, z: -0.32, size: 0.11, rx: 0.4, ry: -0.1, rz: -0.25},
+        {x: 0.22, y: 0.24, z: 0.32, size: 0.2, rx: 0.1, ry: 0.7, rz: 0.35},
+        {x: 0.38, y: 0.45, z: -0.18, size: 0.13, rx: -0.2, ry: -0.6, rz: 0.85},
+        {x: -0.28, y: 0.62, z: -0.06, size: 0.18, rx: 0.45, ry: 0.3, rz: -0.55},
+        {x: 0.02, y: 0.7, z: 0.18, size: 0.12, rx: -0.45, ry: 0.9, rz: 0.1},
+        {x: 0.24, y: 0.86, z: -0.28, size: 0.16, rx: 0.25, ry: -0.35, rz: -0.85},
+        {x: -0.02, y: 0.38, z: -0.02, size: 0.15, rx: 0.35, ry: -0.85, rz: 0.55},
+        {x: -0.42, y: 0.5, z: -0.34, size: 0.11, rx: -0.65, ry: 0.2, rz: -0.1},
+        {x: 0.42, y: 0.62, z: 0.22, size: 0.17, rx: 0.2, ry: 0.45, rz: 1.05},
+        {x: -0.16, y: 0.82, z: 0.36, size: 0.13, rx: -0.15, ry: -0.4, rz: -0.65},
+        {x: 0.14, y: 0.52, z: -0.36, size: 0.1, rx: 0.55, ry: 0.65, rz: 0.2},
+    ]],
+    [0xa7, [
+        {x: -0.3, y: 0.14, z: 0.34, size: 0.15, rx: 0.15, ry: 0.55, rz: -0.4},
+        {x: 0.04, y: 0.2, z: -0.18, size: 0.19, rx: -0.3, ry: -0.25, rz: 0.72},
+        {x: 0.34, y: 0.32, z: 0.1, size: 0.12, rx: 0.55, ry: 0.2, rz: 0.15},
+        {x: -0.4, y: 0.5, z: -0.14, size: 0.1, rx: -0.1, ry: 0.75, rz: -0.75},
+        {x: -0.08, y: 0.58, z: 0.34, size: 0.14, rx: 0.35, ry: -0.65, rz: 0.3},
+        {x: 0.28, y: 0.72, z: -0.34, size: 0.18, rx: -0.45, ry: 0.35, rz: 1.0},
+        {x: -0.18, y: 0.88, z: 0.02, size: 0.13, rx: 0.2, ry: -0.45, rz: -0.15},
+        {x: -0.42, y: 0.3, z: -0.3, size: 0.12, rx: 0.5, ry: 0.4, rz: 0.9},
+        {x: 0.24, y: 0.44, z: -0.38, size: 0.15, rx: -0.55, ry: 0.15, rz: -0.35},
+        {x: -0.24, y: 0.68, z: 0.18, size: 0.18, rx: 0.2, ry: 0.9, rz: 0.55},
+        {x: 0.4, y: 0.78, z: 0.34, size: 0.11, rx: -0.35, ry: -0.5, rz: 0.85},
+        {x: 0.04, y: 0.42, z: 0.06, size: 0.13, rx: 0.65, ry: -0.25, rz: -1.05},
+    ]],
+]);
 function normalizedSpriteId(spriteId) {
     return Number.isFinite(spriteId) ? spriteId & 0xff : null;
 }
@@ -655,6 +716,130 @@ function createFireModel(firstColor, secondColor) {
     return group;
 }
 
+function createRhombusQuadGeometry(width, height) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+        0, height / 2, 0,
+        width / 2, 0, 0,
+        0, -height / 2, 0,
+        -width / 2, 0, 0,
+    ], 3));
+    geometry.setIndex([0, 1, 2, 0, 2, 3]);
+    geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    return geometry;
+}
+
+function createRepellingSpellModel(spriteId) {
+    const id = normalizedSpriteId(spriteId);
+    const distribution = REPELLING_SPELL_DISTRIBUTIONS.get(id)
+        || REPELLING_SPELL_DISTRIBUTIONS.get(0xa5);
+    const size = blockUnitsToSceneSize({x: 1, y: 1, z: 1});
+    const base = Math.min(size.width, size.height, size.depth);
+    const group = new THREE.Group();
+    const fillMaterial = new THREE.MeshBasicMaterial({
+        color: 0xf43f5e,
+        transparent: true,
+        opacity: 0.72,
+        side: THREE.DoubleSide,
+    });
+    const lineMaterial = edgeMaterial(0xfca5a5, 0.82);
+
+    distribution.forEach((diamond, index) => {
+        const width = base * diamond.size * REPELLING_SPELL_RHOMBUS_SCALE * (index % 2 === 0 ? 1.25 : 1.0);
+        const height = base * diamond.size * REPELLING_SPELL_RHOMBUS_SCALE * (index % 3 === 0 ? 0.9 : 1.2);
+        const geometry = createRhombusQuadGeometry(width, height);
+        const mesh = new THREE.Mesh(geometry, fillMaterial);
+        mesh.position.set(
+            diamond.x * size.width,
+            diamond.y * size.height,
+            diamond.z * size.depth
+        );
+        mesh.rotation.set(diamond.rx, diamond.ry, diamond.rz);
+        group.add(mesh);
+
+        const outline = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), lineMaterial);
+        outline.position.copy(mesh.position);
+        outline.rotation.copy(mesh.rotation);
+        group.add(outline);
+    });
+
+    group.userData.full3dKind = 'repelling-spell';
+    group.userData.full3dBlockSize = {x: 1, y: 1, z: 1};
+    group.userData.full3dSource = 'repelling spell sprite, fixed rhombus quad distribution selected by sprite id';
+    group.userData.full3dDistributionSpriteId = id;
+    return group;
+}
+
+function createSpellCycleBubbleModel(spriteId) {
+    const id = normalizedSpriteId(spriteId);
+    const phase = Math.max(0, Math.min(3, id - 0xa0));
+    const size = blockUnitsToSceneSize({x: 1, y: 1, z: 1});
+    const base = Math.min(size.width, size.height, size.depth);
+    const group = new THREE.Group();
+    const bubbleMaterial = new THREE.MeshBasicMaterial({
+        color: 0x7dd3fc,
+        transparent: true,
+        opacity: 0.56,
+        depthWrite: false,
+    });
+    const highlightMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.72,
+        depthWrite: false,
+    });
+    const outlineMaterial = edgeMaterial(0xe0f2fe, 0.55);
+    const seeds = [
+        {x: -0.34, y: 0.18, z: -0.24, size: 0.22},
+        {x: 0.12, y: 0.14, z: 0.28, size: 0.16},
+        {x: 0.36, y: 0.25, z: -0.02, size: 0.13},
+        {x: -0.12, y: 0.34, z: 0.1, size: 0.24},
+        {x: 0.28, y: 0.46, z: 0.34, size: 0.15},
+        {x: -0.42, y: 0.5, z: 0.28, size: 0.12},
+        {x: 0.02, y: 0.58, z: -0.34, size: 0.2},
+        {x: -0.24, y: 0.72, z: -0.08, size: 0.17},
+        {x: 0.4, y: 0.78, z: -0.28, size: 0.11},
+        {x: 0.08, y: 0.88, z: 0.18, size: 0.19},
+    ];
+
+    seeds.forEach((seed, index) => {
+        const shift = ((phase + index) % 4) - 1.5;
+        const radius = base * seed.size * SPELL_CYCLE_BUBBLE_SCALE * (0.78 + phase * 0.09);
+        const geometry = new THREE.SphereGeometry(radius, 16, 10);
+        const bubble = new THREE.Mesh(geometry, bubbleMaterial);
+        bubble.position.set(
+            THREE.MathUtils.clamp(seed.x + shift * 0.045, -0.45, 0.45) * size.width,
+            THREE.MathUtils.clamp(seed.y + phase * 0.035 - (index % 3) * 0.018, 0.08, 0.94) * size.height,
+            THREE.MathUtils.clamp(seed.z - shift * 0.04, -0.45, 0.45) * size.depth
+        );
+        group.add(bubble);
+
+        const outline = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), outlineMaterial);
+        outline.position.copy(bubble.position);
+        group.add(outline);
+
+        if (index % 3 === phase % 3) {
+            const highlight = new THREE.Mesh(
+                new THREE.SphereGeometry(radius * 0.22, 10, 6),
+                highlightMaterial
+            );
+            highlight.position.copy(bubble.position);
+            highlight.position.x -= radius * 0.32;
+            highlight.position.y += radius * 0.34;
+            highlight.position.z += radius * 0.18;
+            group.add(highlight);
+        }
+    });
+
+    group.userData.full3dKind = 'spell-cycle-bubbles';
+    group.userData.full3dBlockSize = {x: 1, y: 1, z: 1};
+    group.userData.full3dSource = 'spell cycle sprite, fixed translucent bubble distribution selected by sprite id';
+    group.userData.full3dDistributionSpriteId = id;
+    return group;
+}
+
 function createGargoyleProxyModel() {
     const group = new THREE.Group();
     const radius = RICARD_OPENGL_UNIT * 0.1;
@@ -762,6 +947,18 @@ export function createFull3DObjectModel(spriteId, opts = {}) {
         return object;
     }
 
+    if (SPELL_CYCLE_SPRITE_IDS.has(id)) {
+        const object = createSpellCycleBubbleModel(id);
+        object.userData.full3dRecognized = true;
+        return object;
+    }
+
+    if (REPELLING_SPELL_SPRITE_IDS.has(id)) {
+        const object = createRepellingSpellModel(id);
+        object.userData.full3dRecognized = true;
+        return object;
+    }
+
     if (ROUND_GREEN_BALL_SPRITE_IDS.has(id)) {
         const object = createBlockUnitSphereModel('green-ball', 0x22c55e);
         object.userData.full3dRecognized = true;
@@ -794,13 +991,20 @@ export function createFull3DObjectModel(spriteId, opts = {}) {
 export function disposeFull3DObjectModel(object) {
     if (!object) return;
 
+    const disposedMaps = new Set();
     object.traverse(child => {
         if (child.geometry) child.geometry.dispose();
         if (child.material) {
             const materials = Array.isArray(child.material)
                 ? child.material
                 : [child.material];
-            materials.forEach(childMaterial => childMaterial.dispose());
+            materials.forEach(childMaterial => {
+                if (childMaterial.map && !disposedMaps.has(childMaterial.map)) {
+                    childMaterial.map.dispose();
+                    disposedMaps.add(childMaterial.map);
+                }
+                childMaterial.dispose();
+            });
         }
     });
 }

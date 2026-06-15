@@ -1015,3 +1015,82 @@ Strict caveats:
 - The spike placement on `0x17` and `0x3F` is hand-authored and visually plausible, not extracted from original geometry data.
 - The rock `0x06` is a visual approximation based on the game appearance, not a recovered original model.
 - More dynamic enemy classes still need dedicated treatment.
+
+## 2026-06-15 - Cauldron Spell Models and Full 3D/Schematic Split
+
+Context:
+
+- Continued polishing the cauldron-room special effects after the object and portcullis work.
+- The main target was the magic/spell emitted around the cauldron:
+  - preserve the already verified live-memory source;
+  - make the Full 3D view richer;
+  - keep the Schematic view simple and diagnostically readable.
+
+Working-memory spell source:
+
+- Reconfirmed that the useful live source is the spell slot around `0x5C68`.
+- The slot is read every frame from working memory, with:
+  - sprite/object id at `0x5C68`;
+  - position at `0x5C69..0x5C6B`.
+- Kept the probe/source as live working memory, not static storage.
+- Final interpretation for the observed cauldron spell values:
+  - `0xA0..0xA3`: normal/nice spell cycle;
+  - `0xA4..0xA7`: wolf-form repelling/attack spell;
+  - `0xAE`: possible item-display state.
+
+Rejected bubble-sprite detour:
+
+- Investigated candidate sprite ranges `0x78..0x7F` and `0x83..0x85` as possible cauldron bubbles.
+- After visual testing, concluded these were not the correct live cauldron spell behaviour for this case.
+- Removed the experimental live bubble-model path for those ranges.
+- Removed the misleading focused-atlas note that presented them as cauldron bubble candidates.
+- Left Gustavo's separate notes in `Docs/info.txt` untouched, because they are working notes rather than renderer truth.
+
+Full 3D spell models:
+
+- Replaced the plain sphere for `0xA0..0xA3` in Full 3D with a translucent bubble-cluster model.
+- The bubble cluster:
+  - is selected directly from the current sprite id;
+  - uses a fixed distribution per frame;
+  - stays inside a `1 x 1 x 1` block-unit volume;
+  - uses simple translucent primitive geometry, not textures.
+- Kept the wolf attack spell `0xA4..0xA7` as the red rhombus/diamond model.
+- The attack model uses fixed quad distributions selected by sprite id, giving visible frame-to-frame variation without adding unverified movement logic.
+- Kept `0xAE` as a possible item-display state using the compact marker.
+
+Schematic renderer behaviour:
+
+- Explicitly separated Schematic and Full 3D spell rendering.
+- In Full 3D:
+  - `0xA0..0xA3` render as bubble clusters;
+  - `0xA4..0xA7` render as the red rhombus attack model.
+- In Schematic:
+  - the spell remains the compact sphere marker for all tracked values.
+- This keeps Schematic useful as a clean diagnostic view while allowing Full 3D to become more visually expressive.
+- Added a render-mode gate so switching modes updates the active spell marker instead of leaving a Full 3D model visible in Schematic mode.
+
+Implementation notes:
+
+- Added the Full 3D spell-cycle bubble model to `runtime/knightlore-full3d-objects.js`.
+- Updated `runtime/semantic3d.js` so spell models are only used when `activeRenderMode` is `full-3d`.
+- Updated the live spell diagnostic text to describe the Full 3D/Schematic split.
+- Bumped the workbench cache key after the renderer changes.
+- Final cache key for this session: `knightlore-stage6-20260615j`.
+
+Verification:
+
+- Rebuilt with webpack after the runtime changes.
+- Ran `git diff --check`.
+- Ran the emulator CPU regression test.
+- Used browser smoke tests against `http://127.0.0.1:8000/` to verify:
+  - the new cache key loads;
+  - the workbench initializes;
+  - the Full 3D and Schematic buttons are present;
+  - no page errors appear on reload.
+
+Strict caveats:
+
+- The bubble-cluster and rhombus models are still proxy geometry, not recovered original assets.
+- The `0xA0..0xA3` bubble distributions are visually authored and selected by verified sprite ids, but the internal bubble positions are not extracted from original sprite pixels.
+- `0xAE` remains classified as a likely item-display state until more direct visual checks confirm every case.
+- Schematic mode intentionally prioritizes clarity over visual fidelity here.

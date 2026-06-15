@@ -68,10 +68,13 @@ guard: 0x90~0x95 is the lower part of the back of the guard and
 0x07 is a regular block,
 0x52 is a ghost (mark this for possible later usage), and
 0x54 is a table,
-0x78~0x7F explosion? Bubbles?
-0x83~0x85 bubbles ???
+0x78~0x7F Character death?
+0x5C68 cauldron spell bubbles:
+    0xA0..0xA3: "good" bubbles
+    0xA4..0xA7: wolf-attack bubbles
+    0xAE: item-display state, using the sphere marker
 0x8D cauldron, 0x8E cauldron "contents"
-0xA5~0xA7 repelling spell
+0xA4~0xA7 repelling spell
 
 0x02 and 0x03 are the arches,
 0x0A to 0x0F: brick walls

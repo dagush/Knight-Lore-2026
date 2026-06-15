@@ -94,8 +94,13 @@ const KNIGHT_LORE_DYNAMIC_VISUAL_SLOT_SIZE = 0x20;
 const SPELL_PROBE_ADDRESS = 0x5c68;
 const SPELL_CYCLE_VALUES = [0xa0, 0xa1, 0xa2, 0xa3];
 const SPELL_ATTACK_VALUES = [0xa4, 0xa5, 0xa6, 0xa7];
+const SPELL_FULL_3D_MODEL_VALUES = new Set([...SPELL_CYCLE_VALUES, ...SPELL_ATTACK_VALUES]);
 const SPELL_ITEM_DISPLAY_VALUES = [0xae];
-const SPELL_OBSERVED_VALUES = [...SPELL_CYCLE_VALUES, ...SPELL_ATTACK_VALUES, ...SPELL_ITEM_DISPLAY_VALUES];
+const SPELL_OBSERVED_VALUES = [
+    ...SPELL_CYCLE_VALUES,
+    ...SPELL_ATTACK_VALUES,
+    ...SPELL_ITEM_DISPLAY_VALUES,
+];
 const SPELL_OBSERVED_VALUE_SET = new Set(SPELL_OBSERVED_VALUES);
 const SPELL_PROBE_WINDOW_BEFORE = 8;
 const SPELL_PROBE_WINDOW_AFTER = 15;
@@ -1246,6 +1251,8 @@ export class KnightLoreStage0Renderer {
         this.spellMarkerMesh = new THREE.Mesh(this.spellMarkerGeometry, this.spellCycleMaterial);
         this.spellMarkerMesh.visible = false;
         this.spellMarkerGroup.add(this.spellMarkerMesh);
+        this.spellMarkerModel = null;
+        this.spellMarkerModelSpriteId = null;
         this.scene.add(this.spellMarkerGroup);
 
         this.playerGroup = new THREE.Group();
@@ -1417,7 +1424,12 @@ export class KnightLoreStage0Renderer {
         if (this.objectWireframeGroup) this.objectWireframeGroup.visible = visible;
         if (this.full3DObjectGroup) this.full3DObjectGroup.visible = visible;
         if (this.collectableItemGroup) this.collectableItemGroup.visible = visible;
-        if (this.spellMarkerGroup) this.spellMarkerGroup.visible = visible && this.spellMarkerMesh.visible;
+        if (this.spellMarkerGroup) {
+            this.spellMarkerGroup.visible = visible && (
+                this.spellMarkerMesh.visible
+                || (this.spellMarkerModel && this.spellMarkerModel.visible)
+            );
+        }
         if (this.directionOverlayElement) {
             this.directionOverlayElement.hidden = !visible;
         }
@@ -1793,29 +1805,78 @@ export class KnightLoreStage0Renderer {
         this.updateSpellMarkerFromProbeRow(null);
     }
 
+    clearSpellMarkerModel() {
+        if (!this.spellMarkerModel) return;
+        if (this.spellMarkerGroup) this.spellMarkerGroup.remove(this.spellMarkerModel);
+        disposeFull3DObjectModel(this.spellMarkerModel);
+        this.spellMarkerModel = null;
+        this.spellMarkerModelSpriteId = null;
+    }
+
+    spellMarkerModelForSprite(spriteId) {
+        const id = Number.isFinite(spriteId) ? spriteId & 0xff : null;
+        if (
+            this.activeRenderMode !== 'full-3d'
+            || id === null
+            || !SPELL_FULL_3D_MODEL_VALUES.has(id)
+        ) {
+            return null;
+        }
+
+        if (this.spellMarkerModel && this.spellMarkerModelSpriteId === id) {
+            return this.spellMarkerModel;
+        }
+
+        this.clearSpellMarkerModel();
+        const model = createFull3DObjectModel(id, {semanticCategory: 'special-spell'});
+        if (!model || !model.userData.full3dRecognized) return null;
+
+        model.visible = false;
+        this.spellMarkerModel = model;
+        this.spellMarkerModelSpriteId = id;
+        this.spellMarkerGroup.add(model);
+        return model;
+    }
+
+    hideSpellMarker() {
+        if (this.spellMarkerMesh) this.spellMarkerMesh.visible = false;
+        if (this.spellMarkerModel) this.spellMarkerModel.visible = false;
+        if (this.spellMarkerGroup) this.spellMarkerGroup.visible = false;
+    }
+
     updateSpellMarkerFromProbeRow(row) {
         if (!this.spellMarkerGroup || !this.spellMarkerMesh) return;
 
         if (!row || !row.observedThisFrame || !isFinitePosition(row.candidatePosition)) {
-            this.spellMarkerMesh.visible = false;
-            this.spellMarkerGroup.visible = false;
+            this.hideSpellMarker();
             return;
         }
 
         const position = mapKnightLoreHighResolutionPositionToScene(row.candidatePosition);
         if (!position) {
-            this.spellMarkerMesh.visible = false;
-            this.spellMarkerGroup.visible = false;
+            this.hideSpellMarker();
             return;
         }
 
+        const spellModel = this.spellMarkerModelForSprite(row.observedValue);
+        if (spellModel) {
+            this.spellMarkerMesh.visible = false;
+            spellModel.position.copy(position.vector);
+            spellModel.userData.spellProbeAddress = row.address;
+            spellModel.userData.spellProbeValue = row.observedValue;
+            spellModel.userData.spellProbeKind = row.observedKind;
+            spellModel.visible = true;
+            this.spellMarkerGroup.visible = this.hasSeenGameplayRoom;
+            return;
+        }
+
+        if (this.spellMarkerModel) this.spellMarkerModel.visible = false;
+
         this.spellMarkerMesh.material = row.observedKind === 'wolf attack'
             ? this.spellAttackMaterial
-            : (
-                row.observedKind === 'item display?'
-                    ? this.spellItemDisplayMaterial
-                    : this.spellCycleMaterial
-            );
+            : (row.observedKind === 'item display?'
+                ? this.spellItemDisplayMaterial
+                : this.spellCycleMaterial);
         this.spellMarkerMesh.position.copy(position.vector);
         this.spellMarkerMesh.position.y += SPELL_MARKER_SIZE / 2;
         this.spellMarkerMesh.userData.spellProbeAddress = row.address;
@@ -2959,8 +3020,9 @@ export class KnightLoreStage0Renderer {
                 + '</span>',
             '</div>',
             '<p class="knight-lore-stage2-note">'
-                + 'Diagnostic only: reads 0x5C68 every frame. Values 0xA0..0xA3 are the spell cycle, '
-                + '0xA4..0xA7 are wolf attack, and 0xAE is tracked as a possible item-display state.'
+                + 'Diagnostic only: reads 0x5C68 every frame. In Full 3D, values 0xA0..0xA3 render as bubble clusters, '
+                + '0xA4..0xA7 render as wolf attack, and 0xAE is tracked as a possible item-display state. '
+                + 'Schematic mode keeps the compact sphere marker.'
                 + '</p>',
             '<table class="knight-lore-spell-probe-table">',
             '<colgroup>',
@@ -3088,8 +3150,8 @@ export class KnightLoreStage0Renderer {
             '<p class="knight-lore-stage2-note">'
                 + 'Focused atlas: confirmed wall sprites 0x0A..0x0F, wooden entrances 0x04 and 0x05, '
                 + 'wooden walls 0x80..0x82, and ball animation candidates 0xB2, 0xB3, 0xB6, '
-                + '0xB7. Wall sprites 0x0A..0x0F and all wooden texture sprites are configured '
-                + 'for vertical flipping when displayed or reused.'
+                + '0xB7. Wall sprites 0x0A..0x0F '
+                + 'and all wooden texture sprites are configured for vertical flipping when displayed or reused.'
                 + '</p>',
             '<p class="knight-lore-stage2-note">'
                 + 'Preview canvas uses the current room attribute '
@@ -3331,6 +3393,9 @@ export class KnightLoreStage0Renderer {
             this.updateObjectWireframes();
             this.updateFull3DObjectModels();
         }
+        if (this.lastSpellProbeRows && this.lastSpellProbeRows.length > 0) {
+            this.updateSpellMarkerFromProbeRow(this.lastSpellProbeRows[0]);
+        }
         this.updateSummary();
         this.syncRenderModeVisibility();
         this.setViewPreset(this.activeViewPreset);
@@ -3520,6 +3585,7 @@ export class KnightLoreStage0Renderer {
             material.dispose();
         });
         this.collectableItemFallbackMaterial.dispose();
+        this.clearSpellMarkerModel();
         this.spellMarkerGeometry.dispose();
         this.spellCycleMaterial.dispose();
         this.spellAttackMaterial.dispose();
