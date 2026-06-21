@@ -1094,3 +1094,146 @@ Strict caveats:
 - The `0xA0..0xA3` bubble distributions are visually authored and selected by verified sprite ids, but the internal bubble positions are not extracted from original sprite pixels.
 - `0xAE` remains classified as a likely item-display state until more direct visual checks confirm every case.
 - Schematic mode intentionally prioritizes clarity over visual fidelity here.
+
+## 2026-06-19 - Compass View Convention for Character Billboards
+
+Context:
+
+- While validating the four-direction sprite billboards for the main character, the terms north/south/east/west became ambiguous.
+- The ambiguity was whether a named view means:
+  - the direction the camera looks; or
+  - the side of the room/character where the camera is placed.
+- This matters because the selected billboard face and the character front/back decision depend on the convention.
+
+Decision:
+
+- The renderer now uses the camera-side convention everywhere.
+- A named view describes where the camera is placed, not the direction it looks.
+- Therefore:
+  - North view means the camera is north of the room/character and looks inward toward the center;
+  - South view means the camera is south of the room/character and looks inward;
+  - East and west follow the same rule;
+  - Upper variants keep the same horizontal camera side, with a positive vertical component;
+  - the canonical game view is `Upper south east (game)`.
+
+Consequences for the player billboard:
+
+- The canonical player-facing direction still comes from the previously verified Figure 17 rule:
+  - sprite byte `0x5C41`;
+  - axis/mirror byte `0x5C0F`;
+  - threshold `0x4C`.
+- The billboard relative view is computed by comparing:
+  - character facing; and
+  - camera side.
+- If both match, the camera sees the character front.
+- Example:
+  - character facing north + North view = front;
+  - character facing north + South view = back.
+- Removed the temporary north/south texture-facing compensation that had been added during visual debugging, because it contradicted this convention.
+
+Implementation notes:
+
+- Documented the convention directly next to `VIEW_PRESETS` in `runtime/semantic3d.js`.
+- Updated the billboard-facing diagnostic to report `view-convention camera-side`.
+- Renamed the diagnostic label from `selected` to `camera-side`.
+- Stabilised camera-side detection by using the vector from the room center to the camera, not the vector from the moving character to the camera.
+- This prevents straight-line player movement from accidentally changing the chosen billboard side near a view-boundary.
+- Added the same convention note to `Docs/info.txt`.
+
+Strict caveats:
+
+- This does not claim the 2D sprites are physically perfect front/back drawings; the game stores only directional sprite sets and mirroring.
+- The convention is a renderer/debugging contract so all future checks use the same language.
+
+## 2026-06-21 - Diagonal View Policies for Character Billboards
+
+Context:
+
+- The four cardinal character billboards were validated for north, south, west, and east views.
+- Diagonal views need a separate rule because they are exactly between two cardinal sides.
+- Relying on a nearest-cardinal dot product for diagonals leaves tie-breaking implicit and can make the game-view result depend on array order rather than renderer intent.
+
+Decision:
+
+- Added an explicit per-view diagonal policy table for the main-character Full 3D billboard renderer.
+- Cardinal views keep the already validated camera-side/relative-view logic.
+- Diagonal policies are:
+  - `Upper south east (game)`: east-facing billboard, live game sprite ids;
+  - `Upper north west`: west-facing billboard, opposite live sprite side, final texture mirror in X;
+  - `Upper south west`: south-facing billboard, relative sprite side;
+  - `Upper north east`: north-facing billboard, opposite relative sprite side, final texture mirror in X.
+
+Implementation notes:
+
+- Added `PLAYER_SPRITE_BILLBOARD_DIAGONAL_POLICIES` to `runtime/semantic3d.js`.
+- Added a separate mirrored texture-material cache so extra X mirroring is requested by policy, not baked into every view.
+- The SE game view now uses the live body/head sprite ids directly, matching the emulator's current sprite selection as closely as the billboard proxy allows.
+- Added live mirror-flag mirroring on top of the policy mirror:
+  - body uses `0x5C0F`;
+  - head uses `0x5C2F`;
+  - transformation sprites use either flag.
+- Policy mirror and live mirror are combined as toggles, so a policy mirror plus a live mirror cancels to an unmirrored final texture.
+- The diagnostic line now reports:
+  - view policy;
+  - sprite selection strategy;
+  - whether the policy requested the extra X mirror;
+  - the body/head live mirror state;
+  - the final body/head mirror state.
+- Added the same compact policy note to `Docs/info.txt`.
+
+Strict caveats:
+
+- The diagonal policy is intentionally explicit and empirical. If visual testing shows that one diagonal needs the other adjacent plane, we should change the policy table, not the general cardinal logic.
+- The extra X mirror is policy-level and may need to be toggled if it proves to double-correct a particular diagonal.
+
+## 2026-06-21 - Character Billboard Polish and Top/Bottom Visibility
+
+Context:
+
+- Continued the Full 3D main-character billboard pass after the diagonal policy table was introduced.
+- The cardinal views were already reading correctly, but top and bottom views made the vertical billboards disappear edge-on.
+- Some diagonal views still felt wrong during motion, especially when the character crossed an axis that did not match the chosen diagonal plane.
+- The language around "walking backwards" was clarified: the problem was not animation timing, but choosing the wrong front/back sprite side for particular diagonal/axis combinations.
+
+Decision:
+
+- Kept the four-direction sprite billboard approach.
+- Added a small top/bottom-only visibility marker rather than deforming or rotating the sprite billboards for those views.
+- Treated the final diagonal corrections as explicit per-view exceptions.
+- Kept mirroring as a separate concern; the final correction in this pass swaps sprite side, not animation phase.
+
+Implementation notes:
+
+- Added a Full 3D top/bottom marker for the main character:
+  - a flat state-coloured disk above the player;
+  - a small facing arrow using the already verified orientation;
+  - visible only in `Top` and `Bottom` views.
+- Added final live mirror support for billboard textures:
+  - body mirror from `0x5C0F`;
+  - head mirror from `0x5C2F`;
+  - transformation sprites use the combined live mirror state.
+- Added policy-level side swaps for the two remaining problematic diagonal cases:
+  - `Upper north east`: swap front/back sprite side when the character faces north/south;
+  - `Upper south west`: swap front/back sprite side when the character faces east/west.
+- Removed the experimental animation-phase reversal, because it solved the wrong interpretation of the problem.
+- Added diagnostics for:
+  - top/bottom marker visibility;
+  - policy mirror;
+  - live mirror;
+  - final mirror;
+  - side-swap activation.
+- Incremented the workbench cache key through the visual debugging passes.
+- Final cache key for this session: `knightlore-stage7-20260621g`.
+
+Verification:
+
+- Rebuilt with webpack after the runtime changes.
+- Ran `git diff --check`.
+- Ran the emulator CPU regression test.
+- Visual verification was done interactively by checking the main character in the Full 3D diagonal views.
+
+Strict caveats:
+
+- The diagonal side-swap rules are empirical renderer policy, not recovered game logic.
+- The current result looked correct after the final pass, but the diagonal cases are visually subtle and should be rechecked later with a fresh eye.
+- Mirroring may still need a small future adjustment, but it should be considered separately from front/back side selection.

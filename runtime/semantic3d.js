@@ -68,6 +68,83 @@ const FLOOR_OPACITY = 0.18;
 const PLAYER_PROXY_BLOCK_UNITS = {x: 0.88, y: 0.88, z: 1.84};
 const PLAYER_BODY_SIZE = blockUnitsToSceneSize({x: 0.72, y: 0.78, z: 1.18});
 const PLAYER_HEAD_SIZE = blockUnitsToSceneSize({x: 0.56, y: 0.6, z: 0.52});
+const PLAYER_SPRITE_BILLBOARD_HALF_SIZE = blockUnitsToSceneSize({x: 1, y: 1, z: 1});
+const PLAYER_SPRITE_BILLBOARD_DIRECTION_OFFSET = 0.16;
+const PLAYER_TOP_BOTTOM_MARKER_RADIUS = PLAYER_SPRITE_BILLBOARD_HALF_SIZE.width * 0.42;
+const PLAYER_TOP_BOTTOM_MARKER_ARROW_LENGTH = PLAYER_SPRITE_BILLBOARD_HALF_SIZE.depth * 0.82;
+const PLAYER_TOP_BOTTOM_MARKER_HEIGHT = PLAYER_SPRITE_BILLBOARD_HALF_SIZE.height * 2 + 1;
+const PLAYER_SPRITE_BILLBOARD_FACINGS = [
+    {id: 'north', color: 0x38bdf8, normal: new THREE.Vector3(0, 0, -1)},
+    {id: 'east', color: 0x22c55e, normal: new THREE.Vector3(1, 0, 0)},
+    {id: 'south', color: 0xfacc15, normal: new THREE.Vector3(0, 0, 1)},
+    {id: 'west', color: 0xec4899, normal: new THREE.Vector3(-1, 0, 0)},
+];
+const PLAYER_SPRITE_BILLBOARD_FACING_INDEX = {
+    north: 0,
+    east: 1,
+    south: 2,
+    west: 3,
+};
+const PLAYER_SPRITE_BILLBOARD_DIAGONAL_POLICIES = {
+    game: {
+        label: 'game-live-south-east',
+        cameraSide: 'east',
+        textureStrategy: 'live',
+        mirrorTextureX: false,
+    },
+    'upper-back-left': {
+        label: 'opposite-game-north-west',
+        cameraSide: 'west',
+        textureStrategy: 'opposite-live',
+        mirrorTextureX: true,
+        mirrorTextureXWhenFacing: ['north', 'south'],
+    },
+    'upper-front-left': {
+        label: 'chosen-south-west',
+        cameraSide: 'south',
+        textureStrategy: 'relative',
+        mirrorTextureX: false,
+        mirrorTextureXWhenFacing: ['north', 'south', 'east', 'west'],
+        swapTextureSideWhenFacing: ['east', 'west'],
+    },
+    'upper-back-right': {
+        label: 'opposite-south-west-north-east',
+        cameraSide: 'north',
+        textureStrategy: 'opposite-relative',
+        mirrorTextureX: true,
+        swapTextureSideWhenFacing: ['north', 'south'],
+    },
+};
+const PLAYER_SPRITE_BILLBOARD_TEXTURE_COLORS = {
+    human: 0xf97316,
+    wolf: 0x60a5fa,
+    transformation: 0xfacc15,
+    unknown: 0xf8fafc,
+};
+const PLAYER_SPRITE_TEXTURE_RANGES = {
+    human: {
+        body: {
+            west: {start: 0x10, length: 6},
+            east: {start: 0x18, length: 6},
+        },
+        head: {
+            west: {start: 0x20, length: 8},
+            east: {start: 0x28, length: 8},
+        },
+    },
+    wolf: {
+        body: {
+            west: {start: 0x30, length: 6},
+            east: {start: 0x38, length: 8},
+        },
+        head: {
+            west: {start: 0x40, length: 8},
+            east: {start: 0x48, length: 8},
+        },
+    },
+};
+const PLAYER_TRANSFORMATION_SPRITE_RANGE = {start: 0x5c, length: 4};
+const PLAYER_BODY_TEXTURE_VERTICAL_SHIFT_RATIO = 0.08;
 const PLAYER_POINTER_RADIUS = 1.1;
 const PLAYER_POINTER_LENGTH = 3.4;
 const PLAYER_HEAD_FALLBACK_OFFSET = new THREE.Vector3(
@@ -104,6 +181,35 @@ const SPELL_OBSERVED_VALUES = [
 const SPELL_OBSERVED_VALUE_SET = new Set(SPELL_OBSERVED_VALUES);
 const SPELL_PROBE_WINDOW_BEFORE = 8;
 const SPELL_PROBE_WINDOW_AFTER = 15;
+const PLAYER_SPRITE_MEMORY_WINDOW_BEFORE = 10;
+const PLAYER_SPRITE_MEMORY_WINDOW_AFTER = 10;
+const PLAYER_SPRITE_MEMORY_PILE_LIMIT = 64;
+const PLAYER_BODY_SPRITE_CANDIDATE_ADDRESS = 0x5c0f - 7;
+const PLAYER_HEAD_SPRITE_CANDIDATE_ADDRESS = 0x5c21 + 7;
+const PLAYER_SPRITE_MEMORY_VALUES = [
+    0x10, 0x11, 0x12, 0x13, 0x14, 0x15,
+    0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d,
+    0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+    0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f,
+    0x30, 0x31, 0x32, 0x33, 0x34, 0x35,
+    0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f,
+    0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,
+    0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f,
+    0x5c, 0x5d, 0x5e, 0x5f,
+];
+const PLAYER_SPRITE_MEMORY_VALUE_SET = new Set(PLAYER_SPRITE_MEMORY_VALUES);
+const PLAYER_SPRITE_FOCUS_WINDOWS = [
+    {
+        label: 'body candidate',
+        expression: '0x5C0F - 7',
+        address: PLAYER_BODY_SPRITE_CANDIDATE_ADDRESS,
+    },
+    {
+        label: 'head candidate',
+        expression: '0x5C21 + 7',
+        address: PLAYER_HEAD_SPRITE_CANDIDATE_ADDRESS,
+    },
+];
 const ROOM_COLOUR_REFERENCE_ADDRESS = 0x5bad;
 const ROOM_COLOUR_CANDIDATE_VALUE = 0x45;
 const ROOM_COLOUR_WORKING_WINDOW_BEFORE = 12;
@@ -200,17 +306,27 @@ const FLOOR_DIRECTION_LABELS = [
 ];
 const DIRECTION_LABEL_EDGE_INSET = 10;
 
+// Compass view convention:
+// View names describe where the camera is placed, not the direction it looks.
+// "North" means the camera is north of the room/character, looking inward.
+// This same camera-side convention is used by the player billboard selector:
+// if characterFacing === cameraSide, the camera sees the character front.
+// The camera side is computed from room center to camera, not from character
+// to camera, so it stays constant while the character moves.
+// Diagonal views are not resolved by nearest-cardinal dot product. They use
+// PLAYER_SPRITE_BILLBOARD_DIAGONAL_POLICIES so the game view can keep the live
+// game sprite selection and opposite diagonals can be tuned explicitly.
 const VIEW_PRESETS = [
-    {id: 'game', label: 'Upper front right (game)', direction: [1, 0.72, 1], up: [0, 1, 0]},
+    {id: 'game', label: 'Upper south east (game)', direction: [1, 0.72, 1], up: [0, 1, 0]},
     {id: 'top', label: 'Top', direction: [0, 1, 0], up: [0, 0, -1]},
     {id: 'bottom', label: 'Bottom', direction: [0, -1, 0], up: [0, 0, 1]},
-    {id: 'right', label: 'Right', direction: [1, 0, 0], up: [0, 1, 0]},
-    {id: 'left', label: 'Left', direction: [-1, 0, 0], up: [0, 1, 0]},
-    {id: 'front', label: 'Front', direction: [0, 0, 1], up: [0, 1, 0]},
-    {id: 'back', label: 'Back', direction: [0, 0, -1], up: [0, 1, 0]},
-    {id: 'upper-front-left', label: 'Upper front left', direction: [-1, 0.72, 1], up: [0, 1, 0]},
-    {id: 'upper-back-right', label: 'Upper back right', direction: [1, 0.72, -1], up: [0, 1, 0]},
-    {id: 'upper-back-left', label: 'Upper back left', direction: [-1, 0.72, -1], up: [0, 1, 0]},
+    {id: 'right', label: 'East', direction: [1, 0, 0], up: [0, 1, 0]},
+    {id: 'left', label: 'West', direction: [-1, 0, 0], up: [0, 1, 0]},
+    {id: 'front', label: 'South', direction: [0, 0, 1], up: [0, 1, 0]},
+    {id: 'back', label: 'North', direction: [0, 0, -1], up: [0, 1, 0]},
+    {id: 'upper-front-left', label: 'Upper south west', direction: [-1, 0.72, 1], up: [0, 1, 0]},
+    {id: 'upper-back-right', label: 'Upper north east', direction: [1, 0.72, -1], up: [0, 1, 0]},
+    {id: 'upper-back-left', label: 'Upper north west', direction: [-1, 0.72, -1], up: [0, 1, 0]},
 ];
 
 const RENDER_MODES = [
@@ -230,28 +346,11 @@ const SPRITE_TEXTURE_PREVIEW_IMAGE_MAX_WIDTH = 174;
 const SPRITE_TEXTURE_PREVIEW_IMAGE_MAX_HEIGHT = 168;
 const SPRITE_TEXTURE_PREVIEW_GROUPS = [
     {
-        label: 'wall sprites',
+        label: 'main character / guard candidates',
+        forceYFlip: true,
         ids: [
-            0x0a, 0x0b, 0x0c, 0x0d,
-            0x0e, 0x0f,
-        ],
-    },
-    {
-        label: 'wooden entrances',
-        ids: [
-            0x04, 0x05,
-        ],
-    },
-    {
-        label: 'wooden walls',
-        ids: [
-            0x80, 0x81, 0x82,
-        ],
-    },
-    {
-        label: 'ball sprites',
-        ids: [
-            0xb2, 0xb3, 0xb6, 0xb7,
+            0x18, 0x19, 0x1d, 0x1e,
+            0x7c, 0x7e,
         ],
     },
 ];
@@ -314,6 +413,10 @@ function formatSceneVector(vector) {
         Number.isFinite(vector.y) ? vector.y.toFixed(1) : '--',
         Number.isFinite(vector.z) ? vector.z.toFixed(1) : '--',
     ].join(', ');
+}
+
+function formatDotScore(value) {
+    return Number.isFinite(value) ? value.toFixed(3) : '--';
 }
 
 function isFinitePosition(position) {
@@ -452,6 +555,22 @@ function classifySpellProbeValue(value) {
     if (SPELL_ATTACK_VALUES.includes(value)) return 'wolf attack';
     if (SPELL_ITEM_DISPLAY_VALUES.includes(value)) return 'item display?';
     return 'other';
+}
+
+function classifyPlayerSpriteMemoryValue(value) {
+    if (value === null || value === undefined) return 'not readable';
+    const id = value & 0xff;
+    const labels = [];
+    if (id >= 0x10 && id <= 0x15) labels.push('human body west');
+    if (id >= 0x18 && id <= 0x1d) labels.push('human body east');
+    if (id >= 0x20 && id <= 0x27) labels.push('human head west');
+    if (id >= 0x28 && id <= 0x2f) labels.push('human head east');
+    if (id >= 0x30 && id <= 0x35) labels.push('wolf body west');
+    if (id >= 0x38 && id <= 0x3f) labels.push('wolf body east');
+    if (id >= 0x40 && id <= 0x47) labels.push('wolf head west');
+    if (id >= 0x48 && id <= 0x4f) labels.push('wolf head east');
+    if (id >= 0x5c && id <= 0x5f) labels.push('transformation');
+    return labels.length > 0 ? labels.join(' / ') : 'other matched value';
 }
 
 function readFrameMemoryByte(frame, address) {
@@ -951,6 +1070,78 @@ function sceneFacingFromGameAxis(axisFacing) {
     return PLAYER_AXIS_TO_SCENE_FACING[axisFacing] || axisFacing || null;
 }
 
+function relativePlayerView(characterFacing, cameraSide) {
+    const characterIndex = PLAYER_SPRITE_BILLBOARD_FACING_INDEX[characterFacing];
+    const cameraSideIndex = PLAYER_SPRITE_BILLBOARD_FACING_INDEX[cameraSide];
+    if (!Number.isFinite(characterIndex) || !Number.isFinite(cameraSideIndex)) return 'unknown';
+
+    const delta = (cameraSideIndex - characterIndex + 4) % 4;
+    switch (delta) {
+        case 0:
+            return 'front';
+        case 1:
+            return 'right';
+        case 2:
+            return 'back';
+        case 3:
+            return 'left';
+        default:
+            return 'unknown';
+    }
+}
+
+function playerSpriteSideForRelativeView(relativeView) {
+    switch (relativeView) {
+        case 'front':
+        case 'right':
+            return 'east';
+        case 'back':
+        case 'left':
+            return 'west';
+        default:
+            return 'east';
+    }
+}
+
+function playerSpriteBillboardPolicyForViewPreset(viewPreset) {
+    return PLAYER_SPRITE_BILLBOARD_DIAGONAL_POLICIES[viewPreset] || {
+        label: 'cardinal-dot-product',
+        cameraSide: null,
+        textureStrategy: 'relative',
+        mirrorTextureX: false,
+        mirrorTextureXWhenFacing: [],
+        swapTextureSideWhenFacing: [],
+    };
+}
+
+function playerSpriteBillboardPolicyFacingMirror(viewPolicy, characterFacing) {
+    const facings = viewPolicy && Array.isArray(viewPolicy.mirrorTextureXWhenFacing)
+        ? viewPolicy.mirrorTextureXWhenFacing
+        : [];
+    return facings.includes(characterFacing);
+}
+
+function playerSpriteBillboardPolicySwapTextureSide(viewPolicy, characterFacing) {
+    const facings = viewPolicy && Array.isArray(viewPolicy.swapTextureSideWhenFacing)
+        ? viewPolicy.swapTextureSideWhenFacing
+        : [];
+    return facings.includes(characterFacing);
+}
+
+function oppositePlayerSpriteSide(side) {
+    if (side === 'east') return 'west';
+    if (side === 'west') return 'east';
+    return side;
+}
+
+function playerSpriteBillboardMirrorFromFlag(flag, threshold = 0x4c) {
+    return Number.isFinite(flag) && flag >= threshold;
+}
+
+function combinePlayerSpriteTextureMirrors(...mirrors) {
+    return mirrors.reduce((enabled, mirror) => enabled !== Boolean(mirror), false);
+}
+
 function rotationForFacing(facing) {
     switch (facing) {
         case 'east':
@@ -963,6 +1154,55 @@ function rotationForFacing(facing) {
         default:
             return 0;
     }
+}
+
+function createVerticalRectangleLineGeometry(width, height) {
+    const halfWidth = width / 2;
+    const positions = [
+        -halfWidth, 0, 0,
+        halfWidth, 0, 0,
+        halfWidth, 0, 0,
+        halfWidth, height, 0,
+        halfWidth, height, 0,
+        -halfWidth, height, 0,
+        -halfWidth, height, 0,
+        -halfWidth, 0, 0,
+    ];
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    return geometry;
+}
+
+function createVerticalBillboardPlaneGeometry(width, height) {
+    const halfWidth = width / 2;
+    const halfHeight = height / 2;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+        -halfWidth, -halfHeight, 0,
+        -halfWidth, halfHeight, 0,
+        halfWidth, -halfHeight, 0,
+        halfWidth, halfHeight, 0,
+    ], 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute([
+        0, 1,
+        0, 0,
+        1, 1,
+        1, 0,
+    ], 2));
+    geometry.setIndex([0, 1, 2, 2, 1, 3]);
+    geometry.computeVertexNormals();
+    return geometry;
+}
+
+function createHorizontalFacingArrowGeometry(length, halfWidth) {
+    const shape = new THREE.Shape();
+    shape.moveTo(0, length);
+    shape.lineTo(-halfWidth, 0);
+    shape.lineTo(halfWidth, 0);
+    shape.closePath();
+    const geometry = new THREE.ShapeGeometry(shape);
+    geometry.rotateX(-Math.PI / 2);
+    return geometry;
 }
 
 function createMaterial(color, opacity) {
@@ -1023,6 +1263,8 @@ export class KnightLoreStage0Renderer {
         this.lastPointerAxisFacing = null;
         this.hasSeenGameplayRoom = false;
         this.playerProxyInfo = null;
+        this.playerSpriteBillboardHookInfo = null;
+        this.playerSpriteBillboardHookCallCount = 0;
         this.lastRoomColorAttribute = null;
         this.roomColourProbeRoomId = null;
         this.previousRoomColourProbe = null;
@@ -1041,6 +1283,10 @@ export class KnightLoreStage0Renderer {
         this.lastSpellProbeChangedHits = 0;
         this.lastSpellProbeValueCounts = new Map();
         this.previousSpellProbeWindows = new Map();
+        this.playerSpriteMemoryPile = [];
+        this.playerSpriteMemoryPileAddresses = new Set();
+        this.playerSpriteMemoryPileOverflow = 0;
+        this.lastPlayerSpriteMemoryScanHits = 0;
         this.roomDimensions = {...DEFAULT_ROOM_DIMENSIONS};
         this.roomGeometryVisible = false;
         this.activeViewPreset = 'game';
@@ -1280,9 +1526,161 @@ export class KnightLoreStage0Renderer {
         this.playerPointerMesh.rotation.x = -Math.PI / 2;
         this.playerPointerMesh.position.copy(PLAYER_POINTER_OFFSET);
         this.playerPointerGroup.add(this.playerPointerMesh);
+        this.playerTopBottomMarkerGroup = new THREE.Group();
+        this.playerTopBottomMarkerGroup.visible = false;
+        this.playerTopBottomMarkerDiskMaterial = new THREE.MeshBasicMaterial({
+            color: 0xf97316,
+            transparent: true,
+            opacity: 0.78,
+            side: THREE.DoubleSide,
+            depthTest: false,
+            depthWrite: false,
+        });
+        this.playerTopBottomMarkerArrowMaterial = new THREE.MeshBasicMaterial({
+            color: 0xf8fafc,
+            transparent: true,
+            opacity: 0.95,
+            side: THREE.DoubleSide,
+            depthTest: false,
+            depthWrite: false,
+        });
+        this.playerTopBottomMarkerDisk = new THREE.Mesh(
+            new THREE.CircleGeometry(PLAYER_TOP_BOTTOM_MARKER_RADIUS, 32),
+            this.playerTopBottomMarkerDiskMaterial
+        );
+        this.playerTopBottomMarkerDisk.rotation.x = -Math.PI / 2;
+        this.playerTopBottomMarkerDisk.position.y = PLAYER_TOP_BOTTOM_MARKER_HEIGHT;
+        this.playerTopBottomMarkerDisk.renderOrder = 30;
+        this.playerTopBottomMarkerArrow = new THREE.Mesh(
+            createHorizontalFacingArrowGeometry(
+                PLAYER_TOP_BOTTOM_MARKER_ARROW_LENGTH,
+                PLAYER_TOP_BOTTOM_MARKER_RADIUS * 0.48
+            ),
+            this.playerTopBottomMarkerArrowMaterial
+        );
+        this.playerTopBottomMarkerArrow.position.y = PLAYER_TOP_BOTTOM_MARKER_HEIGHT + 0.06;
+        this.playerTopBottomMarkerArrow.renderOrder = 31;
+        this.playerTopBottomMarkerGroup.add(this.playerTopBottomMarkerDisk);
+        this.playerTopBottomMarkerGroup.add(this.playerTopBottomMarkerArrow);
+        this.playerSpriteBillboardGroup = new THREE.Group();
+        this.playerSpriteBillboardGroup.visible = false;
+        this.playerSpriteBillboardGeometry = createVerticalRectangleLineGeometry(
+            PLAYER_SPRITE_BILLBOARD_HALF_SIZE.width,
+            PLAYER_SPRITE_BILLBOARD_HALF_SIZE.height
+        );
+        this.playerSpriteBillboardPlaneGeometry = createVerticalBillboardPlaneGeometry(
+            PLAYER_SPRITE_BILLBOARD_HALF_SIZE.width,
+            PLAYER_SPRITE_BILLBOARD_HALF_SIZE.height
+        );
+        this.playerSpriteBillboardFullGeometry = createVerticalRectangleLineGeometry(
+            PLAYER_SPRITE_BILLBOARD_HALF_SIZE.width,
+            PLAYER_SPRITE_BILLBOARD_HALF_SIZE.height * 2
+        );
+        this.playerSpriteBillboardFullPlaneGeometry = createVerticalBillboardPlaneGeometry(
+            PLAYER_SPRITE_BILLBOARD_HALF_SIZE.width,
+            PLAYER_SPRITE_BILLBOARD_HALF_SIZE.height * 2
+        );
+        this.playerSpriteBillboardTextureMaterials = new Map();
+        this.playerSpriteBillboardMirroredTextureMaterials = new Map();
+        this.playerSpriteBillboardFallbackTextureMaterial = new THREE.MeshBasicMaterial({
+            transparent: true,
+            opacity: 0,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+        });
+        this.playerSpriteBillboardMaterials = PLAYER_SPRITE_BILLBOARD_FACINGS.map(facing => (
+            new THREE.LineBasicMaterial({
+                color: facing.color,
+                transparent: true,
+                opacity: 0.92,
+                depthTest: true,
+            })
+        ));
+        PLAYER_SPRITE_BILLBOARD_FACINGS.forEach((facing, index) => {
+            const facingGroup = new THREE.Group();
+            facingGroup.rotation.y = rotationForFacing(facing.id);
+            facingGroup.userData.facing = facing.id;
+
+            const bodyPlane = new THREE.Mesh(
+                this.playerSpriteBillboardPlaneGeometry,
+                this.playerSpriteBillboardFallbackTextureMaterial
+            );
+            // Line rectangles start at their bottom edge; PlaneGeometry is centered.
+            bodyPlane.position.set(
+                0,
+                PLAYER_SPRITE_BILLBOARD_HALF_SIZE.height / 2,
+                -PLAYER_SPRITE_BILLBOARD_DIRECTION_OFFSET - 0.01
+            );
+            bodyPlane.renderOrder = 9;
+
+            const bodyFrame = new THREE.LineSegments(
+                this.playerSpriteBillboardGeometry,
+                this.playerSpriteBillboardMaterials[index]
+            );
+            bodyFrame.position.z = -PLAYER_SPRITE_BILLBOARD_DIRECTION_OFFSET;
+            bodyFrame.renderOrder = 10;
+
+            const headPlane = new THREE.Mesh(
+                this.playerSpriteBillboardPlaneGeometry,
+                this.playerSpriteBillboardFallbackTextureMaterial
+            );
+            headPlane.position.set(
+                0,
+                PLAYER_SPRITE_BILLBOARD_HALF_SIZE.height * 1.5,
+                -PLAYER_SPRITE_BILLBOARD_DIRECTION_OFFSET - 0.01
+            );
+            headPlane.renderOrder = 9;
+
+            const headFrame = new THREE.LineSegments(
+                this.playerSpriteBillboardGeometry,
+                this.playerSpriteBillboardMaterials[index]
+            );
+            headFrame.position.set(
+                0,
+                PLAYER_SPRITE_BILLBOARD_HALF_SIZE.height,
+                -PLAYER_SPRITE_BILLBOARD_DIRECTION_OFFSET
+            );
+            headFrame.renderOrder = 10;
+
+            const fullTransformPlane = new THREE.Mesh(
+                this.playerSpriteBillboardFullPlaneGeometry,
+                this.playerSpriteBillboardFallbackTextureMaterial
+            );
+            fullTransformPlane.position.set(
+                0,
+                PLAYER_SPRITE_BILLBOARD_HALF_SIZE.height,
+                -PLAYER_SPRITE_BILLBOARD_DIRECTION_OFFSET - 0.01
+            );
+            fullTransformPlane.visible = false;
+            fullTransformPlane.renderOrder = 9;
+
+            const fullTransformFrame = new THREE.LineSegments(
+                this.playerSpriteBillboardFullGeometry,
+                this.playerSpriteBillboardMaterials[index]
+            );
+            fullTransformFrame.position.z = -PLAYER_SPRITE_BILLBOARD_DIRECTION_OFFSET;
+            fullTransformFrame.visible = false;
+            fullTransformFrame.renderOrder = 10;
+
+            facingGroup.userData.bodyPlane = bodyPlane;
+            facingGroup.userData.bodyFrame = bodyFrame;
+            facingGroup.userData.headPlane = headPlane;
+            facingGroup.userData.headFrame = headFrame;
+            facingGroup.userData.fullTransformPlane = fullTransformPlane;
+            facingGroup.userData.fullTransformFrame = fullTransformFrame;
+            facingGroup.add(bodyPlane);
+            facingGroup.add(bodyFrame);
+            facingGroup.add(headPlane);
+            facingGroup.add(headFrame);
+            facingGroup.add(fullTransformPlane);
+            facingGroup.add(fullTransformFrame);
+            this.playerSpriteBillboardGroup.add(facingGroup);
+        });
         this.playerGroup.add(this.playerBodyMesh);
         this.playerGroup.add(this.playerHeadMesh);
         this.playerGroup.add(this.playerPointerGroup);
+        this.playerGroup.add(this.playerTopBottomMarkerGroup);
+        this.playerGroup.add(this.playerSpriteBillboardGroup);
         this.scene.add(this.playerGroup);
         this.setRoomGeometryVisible(false);
 
@@ -1301,7 +1699,11 @@ export class KnightLoreStage0Renderer {
     }
 
     updateStaticMemory(staticMemory) {
+        if (this.staticMemory !== staticMemory) {
+            this.clearPlayerSpriteBillboardTextureMaterials();
+        }
         this.staticMemory = staticMemory;
+        this.rebuildPlayerSpriteBillboardTextureMaterials();
         this.updateSummary();
     }
 
@@ -1316,6 +1718,7 @@ export class KnightLoreStage0Renderer {
         this.updateCollectableItemMarkers();
         this.updatePlayerProxy();
         this.updateSpellMovementProbe();
+        this.updatePlayerSpriteMemoryPile();
         this.updateSummary();
         this.updateComparisonDiagnostics();
         this.render();
@@ -1954,6 +2357,43 @@ export class KnightLoreStage0Renderer {
         this.updateSpellMarkerFromProbeRow(row);
     }
 
+    updatePlayerSpriteMemoryPile() {
+        const frame = this.latestFrame;
+        const scene = frame && frame.knightLoreScene ? frame.knightLoreScene : null;
+        const room = scene ? scene.room : null;
+        const roomId = room && room.id !== null && room.id !== undefined ? room.id : null;
+        const memoryStart = frame && Number.isFinite(frame.memoryStart) ? frame.memoryStart : null;
+        const memoryEnd = frame && Number.isFinite(frame.memoryEnd) ? frame.memoryEnd : null;
+        if (
+            !frame
+            || !frame.semanticMemory
+            || memoryStart === null
+            || memoryEnd === null
+            || !this.hasSeenGameplayRoom
+            || roomId === null
+        ) {
+            this.lastPlayerSpriteMemoryScanHits = 0;
+            return;
+        }
+
+        const hits = scanFrameMemoryForBytes(frame, PLAYER_SPRITE_MEMORY_VALUE_SET);
+        this.lastPlayerSpriteMemoryScanHits = hits.length;
+        hits.forEach(hit => {
+            if (this.playerSpriteMemoryPileAddresses.has(hit.address)) return;
+            if (this.playerSpriteMemoryPile.length >= PLAYER_SPRITE_MEMORY_PILE_LIMIT) {
+                this.playerSpriteMemoryPileOverflow += 1;
+                return;
+            }
+
+            this.playerSpriteMemoryPileAddresses.add(hit.address);
+            this.playerSpriteMemoryPile.push({
+                address: hit.address,
+                firstFrame: this.frameCounter,
+                firstValue: hit.value,
+            });
+        });
+    }
+
     resetRoomColourProbe(roomId = null) {
         this.roomColourProbeRoomId = roomId;
         this.previousRoomColourProbe = null;
@@ -2099,18 +2539,24 @@ export class KnightLoreStage0Renderer {
         if (!player || !isFinitePosition(player.body)) {
             this.playerGroup.visible = false;
             this.playerProxyInfo = null;
+            this.playerSpriteBillboardHookInfo = null;
+            this.playerSpriteBillboardGroup.visible = false;
             return;
         }
         const room = scene ? scene.room : null;
         if (!room || room.id === null || room.id === undefined) {
             this.playerGroup.visible = false;
             this.playerProxyInfo = null;
+            this.playerSpriteBillboardHookInfo = null;
+            this.playerSpriteBillboardGroup.visible = false;
             return;
         }
         const orientation = player.orientation || {};
         if (!orientation.visualFacing) {
             this.playerGroup.visible = false;
             this.playerProxyInfo = null;
+            this.playerSpriteBillboardHookInfo = null;
+            this.playerSpriteBillboardGroup.visible = false;
             return;
         }
 
@@ -2118,6 +2564,8 @@ export class KnightLoreStage0Renderer {
         if (!body) {
             this.playerGroup.visible = false;
             this.playerProxyInfo = null;
+            this.playerSpriteBillboardHookInfo = null;
+            this.playerSpriteBillboardGroup.visible = false;
             return;
         }
 
@@ -2140,8 +2588,6 @@ export class KnightLoreStage0Renderer {
             : stateLabel === 'wolf'
                 ? this.playerWolfMaterial
                 : this.playerUnknownMaterial;
-        this.playerBodyMesh.material = playerStateMaterial;
-        this.playerHeadMesh.material = playerStateMaterial;
         const classifiedAxisFacing = orientation.visualFacing || null;
         if (classifiedAxisFacing) {
             this.lastPointerAxisFacing = classifiedAxisFacing;
@@ -2189,6 +2635,44 @@ export class KnightLoreStage0Renderer {
             this.playerHeadMesh.position.copy(PLAYER_HEAD_FALLBACK_OFFSET);
         }
 
+        const proxyVisible = this.activeRenderMode === 'schematic';
+        const topBottomMarkerVisible = this.activeRenderMode === 'full-3d'
+            && (this.activeViewPreset === 'top' || this.activeViewPreset === 'bottom');
+        this.playerBodyMesh.visible = proxyVisible;
+        this.playerHeadMesh.visible = proxyVisible;
+        this.playerPointerGroup.visible = proxyVisible;
+        this.playerTopBottomMarkerGroup.visible = topBottomMarkerVisible;
+        this.playerTopBottomMarkerGroup.rotation.y = rotationForFacing(pointerFacing);
+        this.playerTopBottomMarkerDiskMaterial.color.setHex(
+            stateLabel === 'human'
+                ? 0xf97316
+                : stateLabel === 'wolf'
+                    ? 0x60a5fa
+                    : 0x94a3b8
+        );
+        this.playerBodyMesh.material = playerStateMaterial;
+        this.playerHeadMesh.material = playerStateMaterial;
+
+        this.updatePlayerSpriteBillboards({
+            bodySprite: readFrameMemoryByte(this.latestFrame, PLAYER_BODY_SPRITE_CANDIDATE_ADDRESS),
+            headSprite: readFrameMemoryByte(this.latestFrame, PLAYER_HEAD_SPRITE_CANDIDATE_ADDRESS),
+            bodyPosition: player.body,
+            headPosition: headCandidatePosition,
+            bodyScenePosition: body.vector,
+            headSceneOffset: useHeadCandidate ? headOffset : PLAYER_HEAD_FALLBACK_OFFSET,
+            room,
+            orientation,
+            state: stateLabel,
+            pointerFacing,
+            pointerAxisFacing,
+            bodyMirrorFlag: orientation.bodyMirrorFlag,
+            headMirrorFlag: orientation.headMirrorFlag,
+            directionAxisThreshold: orientation.directionAxisThreshold,
+            activeRenderMode: this.activeRenderMode,
+            activeViewPreset: this.activeViewPreset,
+            camera: this.camera,
+        });
+
         this.playerProxyInfo = {
             bodySource: body.source,
             headSource: useHeadCandidate
@@ -2210,6 +2694,390 @@ export class KnightLoreStage0Renderer {
             documentedOrientation: orientation.documentedOrientation || null,
             bodyOrientation: orientation.bodyOrientation || null,
             state: stateLabel,
+            proxyVisible,
+            topBottomMarkerVisible,
+        };
+    }
+
+    updatePlayerSpriteBillboards(billboardInput) {
+        this.playerSpriteBillboardHookCallCount += 1;
+        const viewPolicy = playerSpriteBillboardPolicyForViewPreset(
+            billboardInput.activeViewPreset
+        );
+        const facingScores = this.computePlayerSpriteBillboardFacingScores(billboardInput);
+        const selectedFacing = viewPolicy.cameraSide
+            || (facingScores.signedBest ? facingScores.signedBest.id : null);
+        const selectedScore = facingScores.scores.find(score => score.id === selectedFacing) || null;
+        const visible = billboardInput.activeRenderMode === 'full-3d' && Boolean(selectedFacing);
+        const textureSelection = this.resolvePlayerSpriteBillboardTextureSelection(
+            billboardInput,
+            selectedFacing,
+            viewPolicy
+        );
+        this.playerSpriteBillboardGroup.visible = visible;
+        this.playerSpriteBillboardGroup.children.forEach(facingGroup => {
+            const selected = visible && facingGroup.userData.facing === selectedFacing;
+            facingGroup.visible = selected;
+            if (!selected) return;
+            const transformVisible = textureSelection.renderMode === 'transformation';
+            facingGroup.userData.bodyPlane.visible = !transformVisible;
+            facingGroup.userData.bodyFrame.visible = !transformVisible;
+            facingGroup.userData.headPlane.visible = !transformVisible;
+            facingGroup.userData.headFrame.visible = !transformVisible;
+            facingGroup.userData.fullTransformPlane.visible = transformVisible;
+            facingGroup.userData.fullTransformFrame.visible = transformVisible;
+            if (transformVisible) {
+                facingGroup.userData.fullTransformPlane.material = textureSelection.fullMaterial
+                    || this.playerSpriteBillboardFallbackTextureMaterial;
+            } else {
+                facingGroup.userData.bodyPlane.material = textureSelection.bodyMaterial
+                    || this.playerSpriteBillboardFallbackTextureMaterial;
+                facingGroup.userData.headPlane.material = textureSelection.headMaterial
+                    || this.playerSpriteBillboardFallbackTextureMaterial;
+            }
+        });
+        const wireframeCount = visible
+            ? (textureSelection.renderMode === 'transformation' ? 1 : 2)
+            : 0;
+        this.playerSpriteBillboardHookInfo = {
+            frame: this.frameCounter,
+            callCount: this.playerSpriteBillboardHookCallCount,
+            mode: billboardInput.activeRenderMode,
+            viewPreset: billboardInput.activeViewPreset,
+            wireframesVisible: visible,
+            wireframeCount,
+            viewerDirection: facingScores.viewerDirection,
+            viewerDirectionSource: facingScores.viewerDirectionSource,
+            selectedFacing,
+            selectedDot: selectedScore ? selectedScore.dot : null,
+            geometryFront: '-Z',
+            viewConvention: 'camera-side',
+            viewPolicy: viewPolicy.label,
+            textureStrategy: textureSelection.textureStrategy,
+            textureMirrorX: textureSelection.mirrorTextureX,
+            policyMirrorTextureX: textureSelection.policyMirrorTextureX,
+            policyFacingMirrorTextureX: textureSelection.policyFacingMirrorTextureX,
+            policySwapTextureSide: textureSelection.policySwapTextureSide,
+            bodyLiveMirrorX: textureSelection.bodyLiveMirrorX,
+            headLiveMirrorX: textureSelection.headLiveMirrorX,
+            bodyMirrorTextureX: textureSelection.bodyMirrorTextureX,
+            headMirrorTextureX: textureSelection.headMirrorTextureX,
+            textureFlip: 'buffer-xy',
+            billboardMode: textureSelection.renderMode,
+            relativeView: textureSelection.relativeView,
+            textureSide: textureSelection.textureSide,
+            textureCharacterFacing: textureSelection.characterFacing,
+            textureState: textureSelection.state,
+            textureFullSprite: textureSelection.fullSprite,
+            textureBodySprite: textureSelection.bodySprite,
+            textureHeadSprite: textureSelection.headSprite,
+            textureFullReady: Boolean(textureSelection.fullMaterial),
+            textureBodyReady: Boolean(textureSelection.bodyMaterial),
+            textureHeadReady: Boolean(textureSelection.headMaterial),
+            bodyTextureYOffset: textureSelection.bodyTextureYOffset,
+            dotSummary: facingScores.scores.map(score => (
+                score.id + ':' + formatDotScore(score.dot)
+            )).join(' '),
+            bodySprite: billboardInput.bodySprite,
+            headSprite: billboardInput.headSprite,
+            state: billboardInput.state,
+            pointerFacing: billboardInput.pointerFacing,
+            pointerAxisFacing: billboardInput.pointerAxisFacing,
+            bodyMirrorFlag: billboardInput.bodyMirrorFlag,
+            headMirrorFlag: billboardInput.headMirrorFlag,
+            roomId: billboardInput.room ? billboardInput.room.id : null,
+            cameraPosition: billboardInput.camera ? billboardInput.camera.position.clone() : null,
+            cameraUp: billboardInput.camera ? billboardInput.camera.up.clone() : null,
+        };
+    }
+
+    resolvePlayerSpriteBillboardTextureSelection(billboardInput, selectedFacing, viewPolicy) {
+        const characterFacing = billboardInput.pointerFacing || null;
+        const relativeView = relativePlayerView(characterFacing, selectedFacing);
+        const baseRelativeTextureSide = playerSpriteSideForRelativeView(relativeView);
+        const textureStrategy = viewPolicy ? viewPolicy.textureStrategy : 'relative';
+        const policyMirrorTextureX = Boolean(viewPolicy && viewPolicy.mirrorTextureX);
+        const policyFacingMirrorTextureX = playerSpriteBillboardPolicyFacingMirror(
+            viewPolicy,
+            characterFacing
+        );
+        const policySwapTextureSide = playerSpriteBillboardPolicySwapTextureSide(
+            viewPolicy,
+            characterFacing
+        );
+        const relativeTextureSide = policySwapTextureSide
+            ? oppositePlayerSpriteSide(baseRelativeTextureSide)
+            : baseRelativeTextureSide;
+        const mirrorThreshold = Number.isFinite(billboardInput.directionAxisThreshold)
+            ? billboardInput.directionAxisThreshold
+            : 0x4c;
+        const bodyLiveMirrorX = playerSpriteBillboardMirrorFromFlag(
+            billboardInput.bodyMirrorFlag,
+            mirrorThreshold
+        );
+        const headLiveMirrorX = playerSpriteBillboardMirrorFromFlag(
+            billboardInput.headMirrorFlag,
+            mirrorThreshold
+        );
+        const transformLiveMirrorX = bodyLiveMirrorX || headLiveMirrorX;
+        const state = this.resolvePlayerSpriteBillboardState(
+            billboardInput.state,
+            billboardInput.bodySprite,
+            billboardInput.headSprite
+        );
+        const transformationSprite = this.playerTransformationSpriteId(
+            billboardInput.bodySprite,
+            billboardInput.headSprite
+        );
+        if (transformationSprite !== null) {
+            const fullMirrorTextureX = combinePlayerSpriteTextureMirrors(
+                policyMirrorTextureX,
+                policyFacingMirrorTextureX,
+                transformLiveMirrorX
+            );
+            const fullMaterial = this.playerSpriteBillboardTextureMaterialForSprite(
+                transformationSprite,
+                fullMirrorTextureX
+            );
+            return {
+                renderMode: 'transformation',
+                relativeView,
+                textureSide: relativeTextureSide,
+                textureStrategy,
+                policyMirrorTextureX,
+                policyFacingMirrorTextureX,
+                policySwapTextureSide,
+                bodyLiveMirrorX,
+                headLiveMirrorX,
+                mirrorTextureX: fullMirrorTextureX,
+                bodyMirrorTextureX: fullMirrorTextureX,
+                headMirrorTextureX: fullMirrorTextureX,
+                characterFacing,
+                state: 'transformation',
+                fullSprite: transformationSprite,
+                bodySprite: transformationSprite,
+                headSprite: transformationSprite,
+                fullMaterial,
+                bodyMaterial: null,
+                headMaterial: null,
+                bodyTextureYOffset: 0,
+            };
+        }
+        const bodyTextureSide = this.resolvePlayerSpriteBillboardTextureSide({
+            strategy: textureStrategy,
+            relativeTextureSide,
+            liveSprite: billboardInput.bodySprite,
+            half: 'body',
+        });
+        const headTextureSide = this.resolvePlayerSpriteBillboardTextureSide({
+            strategy: textureStrategy,
+            relativeTextureSide,
+            liveSprite: billboardInput.headSprite,
+            half: 'head',
+        });
+        const bodySprite = textureStrategy === 'live'
+            ? billboardInput.bodySprite
+            : this.resolvePlayerSpriteBillboardSpriteId({
+                state,
+                half: 'body',
+                side: bodyTextureSide,
+                liveSprite: billboardInput.bodySprite,
+            });
+        const headSprite = textureStrategy === 'live'
+            ? billboardInput.headSprite
+            : this.resolvePlayerSpriteBillboardSpriteId({
+                state,
+                half: 'head',
+                side: headTextureSide,
+                liveSprite: billboardInput.headSprite,
+            });
+        const bodyMirrorTextureX = combinePlayerSpriteTextureMirrors(
+            policyMirrorTextureX,
+            policyFacingMirrorTextureX,
+            bodyLiveMirrorX
+        );
+        const headMirrorTextureX = combinePlayerSpriteTextureMirrors(
+            policyMirrorTextureX,
+            policyFacingMirrorTextureX,
+            headLiveMirrorX
+        );
+        const bodyMaterial = this.playerSpriteBillboardTextureMaterialForSprite(
+            bodySprite,
+            bodyMirrorTextureX
+        );
+        const headMaterial = this.playerSpriteBillboardTextureMaterialForSprite(
+            headSprite,
+            headMirrorTextureX
+        );
+
+        return {
+            renderMode: 'split',
+            relativeView,
+            textureSide: bodyTextureSide === headTextureSide
+                ? bodyTextureSide
+                : bodyTextureSide + '/' + headTextureSide,
+            textureStrategy,
+            policyMirrorTextureX,
+            policyFacingMirrorTextureX,
+            policySwapTextureSide,
+            bodyLiveMirrorX,
+            headLiveMirrorX,
+            mirrorTextureX: bodyMirrorTextureX || headMirrorTextureX,
+            bodyMirrorTextureX,
+            headMirrorTextureX,
+            characterFacing,
+            state,
+            fullSprite: null,
+            bodySprite,
+            headSprite,
+            fullMaterial: null,
+            bodyMaterial,
+            headMaterial,
+            bodyTextureYOffset: bodyMaterial ? bodyMaterial.userData.bodyTextureYOffset || 0 : 0,
+        };
+    }
+
+    resolvePlayerSpriteBillboardState(stateLabel, bodySprite, headSprite) {
+        if (stateLabel === 'human' || stateLabel === 'wolf') return stateLabel;
+        const bodyState = this.playerSpriteStateFromSpriteId(bodySprite);
+        if (bodyState) return bodyState;
+        const headState = this.playerSpriteStateFromSpriteId(headSprite);
+        return headState || 'unknown';
+    }
+
+    playerTransformationSpriteId(bodySprite, headSprite) {
+        if (this.spriteIdInRange(bodySprite, PLAYER_TRANSFORMATION_SPRITE_RANGE)) return bodySprite;
+        if (this.spriteIdInRange(headSprite, PLAYER_TRANSFORMATION_SPRITE_RANGE)) return headSprite;
+        return null;
+    }
+
+    resolvePlayerSpriteBillboardTextureSide({strategy, relativeTextureSide, liveSprite, half}) {
+        if (strategy === 'live') {
+            return this.playerSpriteSideFromSpriteId(liveSprite, half) || relativeTextureSide;
+        }
+        if (strategy === 'opposite-live') {
+            return oppositePlayerSpriteSide(
+                this.playerSpriteSideFromSpriteId(liveSprite, half) || relativeTextureSide
+            );
+        }
+        if (strategy === 'opposite-relative') {
+            return oppositePlayerSpriteSide(relativeTextureSide);
+        }
+        return relativeTextureSide;
+    }
+
+    resolvePlayerSpriteBillboardSpriteId({state, half, side, liveSprite}) {
+        if (this.spriteIdInRange(liveSprite, PLAYER_TRANSFORMATION_SPRITE_RANGE)) {
+            return liveSprite;
+        }
+        const range = PLAYER_SPRITE_TEXTURE_RANGES[state]
+            && PLAYER_SPRITE_TEXTURE_RANGES[state][half]
+            && PLAYER_SPRITE_TEXTURE_RANGES[state][half][side];
+        if (!range) return liveSprite;
+
+        const phase = this.playerSpriteAnimationPhase(liveSprite, half);
+        return range.start + (phase % range.length);
+    }
+
+    playerSpriteAnimationPhase(spriteId, half) {
+        for (const stateRanges of Object.values(PLAYER_SPRITE_TEXTURE_RANGES)) {
+            const halfRanges = stateRanges[half] || {};
+            for (const range of Object.values(halfRanges)) {
+                if (this.spriteIdInRange(spriteId, range)) {
+                    return spriteId - range.start;
+                }
+            }
+        }
+        if (this.spriteIdInRange(spriteId, PLAYER_TRANSFORMATION_SPRITE_RANGE)) {
+            return spriteId - PLAYER_TRANSFORMATION_SPRITE_RANGE.start;
+        }
+        return 0;
+    }
+
+    playerSpriteStateFromSpriteId(spriteId) {
+        for (const [state, stateRanges] of Object.entries(PLAYER_SPRITE_TEXTURE_RANGES)) {
+            for (const halfRanges of Object.values(stateRanges)) {
+                for (const range of Object.values(halfRanges)) {
+                    if (this.spriteIdInRange(spriteId, range)) return state;
+                }
+            }
+        }
+        return null;
+    }
+
+    playerSpriteSideFromSpriteId(spriteId, half = null) {
+        for (const stateRanges of Object.values(PLAYER_SPRITE_TEXTURE_RANGES)) {
+            const halfEntries = half
+                ? [[half, stateRanges[half] || {}]]
+                : Object.entries(stateRanges);
+            for (const [, halfRanges] of halfEntries) {
+                for (const [side, range] of Object.entries(halfRanges)) {
+                    if (this.spriteIdInRange(spriteId, range)) return side;
+                }
+            }
+        }
+        return null;
+    }
+
+    isPlayerBodySpriteId(spriteId) {
+        for (const stateRanges of Object.values(PLAYER_SPRITE_TEXTURE_RANGES)) {
+            const bodyRanges = stateRanges.body || {};
+            for (const range of Object.values(bodyRanges)) {
+                if (this.spriteIdInRange(spriteId, range)) return true;
+            }
+        }
+        return false;
+    }
+
+    spriteIdInRange(spriteId, range) {
+        return Number.isFinite(spriteId)
+            && spriteId >= range.start
+            && spriteId < range.start + range.length;
+    }
+
+    computePlayerSpriteBillboardFacingScores(billboardInput) {
+        const cameraPosition = billboardInput.camera ? billboardInput.camera.position : null;
+        const cameraTarget = this.cameraTarget();
+        if (!cameraPosition || !cameraTarget) {
+            return {
+                viewerDirection: null,
+                viewerDirectionSource: 'unavailable',
+                scores: [],
+                signedBest: null,
+            };
+        }
+
+        const viewerDirection = cameraPosition.clone().sub(cameraTarget);
+        viewerDirection.y = 0;
+        if (viewerDirection.lengthSq() < 0.000001) {
+            return {
+                viewerDirection: null,
+                viewerDirectionSource: 'room-center',
+                scores: [],
+                signedBest: null,
+            };
+        }
+
+        // Use the room center, not the moving character, to classify the camera
+        // side. The side is a property of the selected view, so it must remain
+        // stable while the player walks across the room.
+        viewerDirection.normalize();
+        const scores = PLAYER_SPRITE_BILLBOARD_FACINGS.map(facing => {
+            const dot = viewerDirection.dot(facing.normal);
+            return {
+                id: facing.id,
+                dot,
+            };
+        });
+        const signedBest = scores.reduce((best, score) => (
+            !best || score.dot > best.dot ? score : best
+        ), null);
+
+        return {
+            viewerDirection,
+            viewerDirectionSource: 'room-center',
+            scores,
+            signedBest,
         };
     }
 
@@ -2314,6 +3182,10 @@ export class KnightLoreStage0Renderer {
                         'pointer ' + this.playerProxyInfo.pointerLabel,
                         this.playerProxyInfo.pointerSource,
                         'state ' + this.playerProxyInfo.state,
+                        this.playerProxyInfo.proxyVisible ? 'proxy visible' : 'proxy hidden for Full 3D',
+                        this.playerProxyInfo.topBottomMarkerVisible
+                            ? 'top/bottom marker visible'
+                            : 'top/bottom marker hidden',
                         'mirror flags ' + (this.playerProxyInfo.mirrorFlagsConsistent ? 'consistent' : 'differ'),
                         'key ' + this.playerProxyInfo.spriteMirrorKey,
                         'pair ' + (this.playerProxyInfo.visualAxisPair || '--'),
@@ -2338,6 +3210,78 @@ export class KnightLoreStage0Renderer {
                     ].join(', ')
                     : 'not available'
             ),
+            'Player billboard hook: ' + (
+                this.playerSpriteBillboardHookInfo
+                    ? [
+                        'called',
+                        'frame ' + this.playerSpriteBillboardHookInfo.frame,
+                        'calls ' + this.playerSpriteBillboardHookInfo.callCount,
+                        'mode ' + this.playerSpriteBillboardHookInfo.mode,
+                        'view ' + this.playerSpriteBillboardHookInfo.viewPreset,
+                        this.playerSpriteBillboardHookInfo.wireframesVisible
+                            ? 'wireframes visible'
+                            : 'wireframes hidden',
+                        'rects ' + this.playerSpriteBillboardHookInfo.wireframeCount,
+                        'viewdir ' + formatSceneVector(this.playerSpriteBillboardHookInfo.viewerDirection)
+                            + ' from ' + this.playerSpriteBillboardHookInfo.viewerDirectionSource,
+                        'view-convention ' + this.playerSpriteBillboardHookInfo.viewConvention,
+                        'view-policy ' + this.playerSpriteBillboardHookInfo.viewPolicy,
+                        'camera-side ' + (
+                            this.playerSpriteBillboardHookInfo.selectedFacing || '--'
+                        ) + ' ' + formatDotScore(this.playerSpriteBillboardHookInfo.selectedDot),
+                        'front ' + this.playerSpriteBillboardHookInfo.geometryFront,
+                        'flip ' + this.playerSpriteBillboardHookInfo.textureFlip,
+                        'billboard ' + this.playerSpriteBillboardHookInfo.billboardMode,
+                        'strategy ' + this.playerSpriteBillboardHookInfo.textureStrategy,
+                        'mirror-x ' + (this.playerSpriteBillboardHookInfo.textureMirrorX ? 'yes' : 'no'),
+                        'policy-mirror ' + (this.playerSpriteBillboardHookInfo.policyMirrorTextureX ? 'yes' : 'no'),
+                        'facing-policy-mirror ' + (
+                            this.playerSpriteBillboardHookInfo.policyFacingMirrorTextureX ? 'yes' : 'no'
+                        ),
+                        'side-swap ' + (
+                            this.playerSpriteBillboardHookInfo.policySwapTextureSide ? 'yes' : 'no'
+                        ),
+                        'live-mirror body/head '
+                            + (this.playerSpriteBillboardHookInfo.bodyLiveMirrorX ? 'yes' : 'no')
+                            + '/'
+                            + (this.playerSpriteBillboardHookInfo.headLiveMirrorX ? 'yes' : 'no'),
+                        'final-mirror body/head '
+                            + (this.playerSpriteBillboardHookInfo.bodyMirrorTextureX ? 'yes' : 'no')
+                            + '/'
+                            + (this.playerSpriteBillboardHookInfo.headMirrorTextureX ? 'yes' : 'no'),
+                        'mirror-flags '
+                            + formatHex(this.playerSpriteBillboardHookInfo.bodyMirrorFlag, 2)
+                            + '/'
+                            + formatHex(this.playerSpriteBillboardHookInfo.headMirrorFlag, 2),
+                        'relative ' + this.playerSpriteBillboardHookInfo.relativeView,
+                        'texture-facing ' + this.playerSpriteBillboardHookInfo.textureCharacterFacing,
+                        'texture-side ' + this.playerSpriteBillboardHookInfo.textureSide,
+                        'tex-full ' + formatHex(this.playerSpriteBillboardHookInfo.textureFullSprite, 2)
+                            + (
+                                this.playerSpriteBillboardHookInfo.textureFullSprite === null
+                                    ? ''
+                                    : (this.playerSpriteBillboardHookInfo.textureFullReady ? '' : ' missing')
+                            ),
+                        'tex-body ' + formatHex(this.playerSpriteBillboardHookInfo.textureBodySprite, 2)
+                            + (this.playerSpriteBillboardHookInfo.textureBodyReady ? '' : ' missing'),
+                        'body-y +' + this.playerSpriteBillboardHookInfo.bodyTextureYOffset + 'px',
+                        'tex-head ' + formatHex(this.playerSpriteBillboardHookInfo.textureHeadSprite, 2)
+                            + (this.playerSpriteBillboardHookInfo.textureHeadReady ? '' : ' missing'),
+                        'dots ' + (this.playerSpriteBillboardHookInfo.dotSummary || '--'),
+                        'body ' + formatHex(this.playerSpriteBillboardHookInfo.bodySprite, 2),
+                        'head ' + formatHex(this.playerSpriteBillboardHookInfo.headSprite, 2),
+                        'state ' + this.playerSpriteBillboardHookInfo.state,
+                        'facing ' + (
+                            this.playerSpriteBillboardHookInfo.pointerAxisFacing
+                                ? this.playerSpriteBillboardHookInfo.pointerAxisFacing
+                                    + '/'
+                                    + this.playerSpriteBillboardHookInfo.pointerFacing
+                                : this.playerSpriteBillboardHookInfo.pointerFacing
+                        ),
+                        'camera ' + formatSceneVector(this.playerSpriteBillboardHookInfo.cameraPosition),
+                    ].join(', ')
+                    : 'not called yet'
+            ),
         ].join('\n');
     }
 
@@ -2358,22 +3302,17 @@ export class KnightLoreStage0Renderer {
             room ? room.id : null,
             resolvedItemRecords
         );
-        const spriteTextureTable = this.renderSpriteTextureExtractorTable(
-            room ? room.spriteTextures : null,
-            room ? room.colourAttribute : null
-        );
+        const playerSpriteTable = this.renderPlayerSpriteIdentificationTable();
+        const playerSpriteMemoryPileTable = this.renderPlayerSpriteMemoryPileTable();
 
         if (!comparison || !staticLocation || staticLocation.error) {
             this.comparisonElement.innerHTML = [
                 '<p class="knight-lore-stage2-note is-warning">Background comparison unavailable.</p>',
                 objectTable,
                 itemTable,
-                spriteTextureTable,
+                playerSpriteTable,
+                playerSpriteMemoryPileTable,
             ].join('');
-            this.updateSpriteTexturePreviewCanvas(
-                room ? room.spriteTextures : null,
-                room ? room.colourAttribute : null
-            );
             return;
         }
 
@@ -2429,12 +3368,9 @@ export class KnightLoreStage0Renderer {
             '</table>',
             objectTable,
             itemTable,
-            spriteTextureTable,
+            playerSpriteTable,
+            playerSpriteMemoryPileTable,
         ].join('');
-        this.updateSpriteTexturePreviewCanvas(
-            room ? room.spriteTextures : null,
-            room ? room.colourAttribute : null
-        );
     }
 
     spriteTexturePreviewRows(spriteTextures) {
@@ -2443,6 +3379,7 @@ export class KnightLoreStage0Renderer {
         const rows = [];
         for (const group of SPRITE_TEXTURE_PREVIEW_GROUPS) {
             for (const spriteId of group.ids) {
+                const yFlipped = Boolean(group.forceYFlip) || SPRITE_TEXTURE_VERTICAL_FLIP_IDS.has(spriteId);
                 const texture = getKnightLoreSpriteTexture(this.latestFrame, spriteId)
                     || getKnightLoreSpriteTexture(this.staticMemory, spriteId);
                 if (!texture) {
@@ -2451,11 +3388,13 @@ export class KnightLoreStage0Renderer {
                         valid: false,
                         warning: 'missing from static texture catalog',
                         groupLabel: group.label,
-                        yFlipped: SPRITE_TEXTURE_VERTICAL_FLIP_IDS.has(spriteId),
+                        yFlipped,
                     });
                     continue;
                 }
 
+                const textureYFlipped = Boolean(group.forceYFlip)
+                    || SPRITE_TEXTURE_VERTICAL_FLIP_IDS.has(texture.id);
                 rows.push({
                     id: texture.id,
                     pointerAddress: texture.pointerAddress,
@@ -2472,7 +3411,7 @@ export class KnightLoreStage0Renderer {
                     maskBitCount: texture.maskBitCount || 0,
                     previewRows: texture.previewRows || [],
                     groupLabel: group.label,
-                    yFlipped: SPRITE_TEXTURE_VERTICAL_FLIP_IDS.has(texture.id),
+                    yFlipped: textureYFlipped,
                 });
             }
         }
@@ -2531,6 +3470,173 @@ export class KnightLoreStage0Renderer {
         }
         texture.needsUpdate = true;
         return texture;
+    }
+
+    rebuildPlayerSpriteBillboardTextureMaterials() {
+        if (!this.staticMemory || typeof document === 'undefined') return;
+        if (this.playerSpriteBillboardTextureMaterials.size > 0) return;
+
+        PLAYER_SPRITE_MEMORY_VALUES.forEach(spriteId => {
+            const material = this.createPlayerSpriteBillboardTextureMaterial(spriteId);
+            if (material) {
+                this.playerSpriteBillboardTextureMaterials.set(spriteId, material);
+            }
+        });
+    }
+
+    playerSpriteBillboardTextureMaterialForSprite(spriteId, mirrorTextureX = false) {
+        if (!mirrorTextureX) {
+            return this.playerSpriteBillboardTextureMaterials.get(spriteId) || null;
+        }
+        const cached = this.playerSpriteBillboardMirroredTextureMaterials.get(spriteId);
+        if (cached) return cached;
+        const material = this.createPlayerSpriteBillboardTextureMaterial(spriteId, {
+            mirrorTextureX: true,
+        });
+        if (material) {
+            this.playerSpriteBillboardMirroredTextureMaterials.set(spriteId, material);
+        }
+        return material;
+    }
+
+    createPlayerSpriteBillboardTextureMaterial(spriteId, options = {}) {
+        const sourceTexture = getKnightLoreSpriteTexture(this.staticMemory, spriteId);
+        if (!sourceTexture || !sourceTexture.valid) return null;
+
+        const expanded = expandKnightLoreSpriteTexture(sourceTexture);
+        if (!expanded) return null;
+
+        const rawCanvas = this.createPlayerSpriteBillboardCanvas(
+            expanded,
+            this.playerSpriteBillboardColorForSpriteId(spriteId)
+        );
+        const verticalFlippedCanvas = this.createVerticallyFlippedCanvas(rawCanvas) || rawCanvas;
+        const flippedCanvas = this.createHorizontallyFlippedCanvas(verticalFlippedCanvas)
+            || verticalFlippedCanvas;
+        const bodyTextureYOffset = this.isPlayerBodySpriteId(spriteId)
+            ? Math.max(1, Math.round(flippedCanvas.height * PLAYER_BODY_TEXTURE_VERTICAL_SHIFT_RATIO))
+            : 0;
+        const shiftedCanvas = bodyTextureYOffset > 0
+            ? this.createVerticallyShiftedCanvas(flippedCanvas, bodyTextureYOffset) || flippedCanvas
+            : flippedCanvas;
+        const canvas = options.mirrorTextureX
+            ? this.createHorizontallyFlippedCanvas(shiftedCanvas) || shiftedCanvas
+            : shiftedCanvas;
+        const texture = this.createCanvasTexture(canvas);
+        if (!texture) return null;
+
+        const material = new THREE.MeshBasicMaterial({
+            map: texture,
+            transparent: true,
+            alphaTest: 0.04,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+        });
+        material.userData.texture = texture;
+        material.userData.bodyTextureYOffset = bodyTextureYOffset;
+        material.userData.mirrorTextureX = Boolean(options.mirrorTextureX);
+        return material;
+    }
+
+    createPlayerSpriteBillboardCanvas(expanded, color) {
+        if (!expanded || typeof document === 'undefined') return null;
+        const canvas = document.createElement('canvas');
+        canvas.width = expanded.widthPixels;
+        canvas.height = expanded.heightPixels;
+
+        const context = canvas.getContext('2d');
+        if (!context) return null;
+
+        const imageData = context.createImageData(canvas.width, canvas.height);
+        const rgb = rgbFromHexColor(color);
+
+        for (let y = 0; y < expanded.heightPixels; y++) {
+            for (let x = 0; x < expanded.widthPixels; x++) {
+                const sourceIndex = y * expanded.widthPixels + x;
+                const pixelIndex = (y * expanded.widthPixels + x) * 4;
+                const visible = expanded.imagePixels[sourceIndex];
+                imageData.data[pixelIndex] = rgb.r;
+                imageData.data[pixelIndex + 1] = rgb.g;
+                imageData.data[pixelIndex + 2] = rgb.b;
+                imageData.data[pixelIndex + 3] = visible ? 0xff : 0x00;
+            }
+        }
+
+        context.putImageData(imageData, 0, 0);
+        return canvas;
+    }
+
+    createVerticallyFlippedCanvas(sourceCanvas) {
+        if (!sourceCanvas || typeof document === 'undefined') return null;
+        const canvas = document.createElement('canvas');
+        canvas.width = sourceCanvas.width;
+        canvas.height = sourceCanvas.height;
+
+        const context = canvas.getContext('2d');
+        if (!context) return null;
+
+        context.translate(0, canvas.height);
+        context.scale(1, -1);
+        context.drawImage(sourceCanvas, 0, 0);
+        return canvas;
+    }
+
+    createHorizontallyFlippedCanvas(sourceCanvas) {
+        if (!sourceCanvas || typeof document === 'undefined') return null;
+        const canvas = document.createElement('canvas');
+        canvas.width = sourceCanvas.width;
+        canvas.height = sourceCanvas.height;
+
+        const context = canvas.getContext('2d');
+        if (!context) return null;
+
+        context.translate(canvas.width, 0);
+        context.scale(-1, 1);
+        context.drawImage(sourceCanvas, 0, 0);
+        return canvas;
+    }
+
+    createVerticallyShiftedCanvas(sourceCanvas, yOffsetPixels) {
+        if (!sourceCanvas || typeof document === 'undefined') return null;
+        if (!Number.isFinite(yOffsetPixels) || yOffsetPixels === 0) return sourceCanvas;
+        const canvas = document.createElement('canvas');
+        canvas.width = sourceCanvas.width;
+        canvas.height = sourceCanvas.height;
+
+        const context = canvas.getContext('2d');
+        if (!context) return null;
+
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(sourceCanvas, 0, yOffsetPixels);
+        return canvas;
+    }
+
+    playerSpriteBillboardColorForSpriteId(spriteId) {
+        if (this.spriteIdInRange(spriteId, PLAYER_TRANSFORMATION_SPRITE_RANGE)) {
+            return PLAYER_SPRITE_BILLBOARD_TEXTURE_COLORS.transformation;
+        }
+        const state = this.playerSpriteStateFromSpriteId(spriteId);
+        return PLAYER_SPRITE_BILLBOARD_TEXTURE_COLORS[state || 'unknown'];
+    }
+
+    clearPlayerSpriteBillboardTextureMaterials() {
+        if (!this.playerSpriteBillboardTextureMaterials) return;
+        this.playerSpriteBillboardTextureMaterials.forEach(material => {
+            if (material.userData && material.userData.texture) {
+                material.userData.texture.dispose();
+            }
+            material.dispose();
+        });
+        this.playerSpriteBillboardTextureMaterials.clear();
+        if (this.playerSpriteBillboardMirroredTextureMaterials) {
+            this.playerSpriteBillboardMirroredTextureMaterials.forEach(material => {
+                if (material.userData && material.userData.texture) {
+                    material.userData.texture.dispose();
+                }
+                material.dispose();
+            });
+            this.playerSpriteBillboardMirroredTextureMaterials.clear();
+        }
     }
 
     generatedSpriteTextureRecord(textureSummary, colourAttribute) {
@@ -3093,6 +4199,244 @@ export class KnightLoreStage0Renderer {
         ].join('');
     }
 
+    renderPlayerSpriteIdentificationTable() {
+        const scene = this.latestFrame && this.latestFrame.knightLoreScene
+            ? this.latestFrame.knightLoreScene
+            : null;
+        const player = scene ? scene.player : null;
+        const orientation = player ? player.orientation : null;
+        const room = scene ? scene.room : null;
+        const roomLabel = room && room.id !== null && room.id !== undefined
+            ? formatHex(room.id, 2)
+            : '--';
+
+        if (!player || !orientation) {
+            return [
+                '<div class="knight-lore-stage2-comparison-heading is-secondary">',
+                '<strong>Main character sprite identification</strong>',
+                '<span>room ' + escapeHtml(roomLabel) + '</span>',
+                '</div>',
+                '<p class="knight-lore-stage2-note is-warning">'
+                    + 'No live player sprite data captured yet. Start gameplay to populate 0x5C41, 0x5C45, 0x5C0F, and 0x5C2F.'
+                    + '</p>',
+            ].join('');
+        }
+
+        const rows = [
+            {
+                label: '0x5C09 body X',
+                value: formatHex(player.body ? player.body.x : null, 2),
+                interpretation: 'Documented main-character body X.',
+            },
+            {
+                label: '0x5C0A body Y',
+                value: formatHex(player.body ? player.body.y : null, 2),
+                interpretation: 'Documented main-character body Y.',
+            },
+            {
+                label: '0x5C0B body Z',
+                value: formatHex(player.body ? player.body.z : null, 2),
+                interpretation: 'Documented main-character body Z.',
+            },
+            {
+                label: '0x5C20 head X',
+                value: formatHex(player.head && player.head.semanticPosition ? player.head.semanticPosition.x : null, 2),
+                interpretation: 'Documented main-character head X.',
+            },
+            {
+                label: '0x5C2A head Y',
+                value: formatHex(player.head && player.head.semanticPosition ? player.head.semanticPosition.y : null, 2),
+                interpretation: 'Documented main-character head Y.',
+            },
+            {
+                label: '0x5C2B head Z',
+                value: formatHex(player.head && player.head.semanticPosition ? player.head.semanticPosition.z : null, 2),
+                interpretation: 'Documented main-character head Z.',
+            },
+            {
+                label: '0x5C41 live sprite',
+                value: formatHex(orientation.headSprite, 2),
+                interpretation: 'Documented/Ricard orientation sprite; current code treats this as the primary player sprite.',
+            },
+            {
+                label: '0x5C45 live sprite',
+                value: formatHex(orientation.bodySprite, 2),
+                interpretation: 'Second documented player sprite byte; compare visually to decide whether it is the other half.',
+            },
+            {
+                label: '0x5C0F mirror/axis',
+                value: formatHex(orientation.bodyMirrorFlag, 2),
+                interpretation: 'Primary axis flag used by the verified direction rule; >= '
+                    + formatHex(orientation.directionAxisThreshold, 2)
+                    + ' means north/south axis.',
+            },
+            {
+                label: '0x5C2F mirror/axis',
+                value: formatHex(orientation.headMirrorFlag, 2),
+                interpretation: 'Second mirror/axis byte; check whether it follows 0x5C0F for the other character half.',
+            },
+            {
+                label: 'Documented orientation',
+                value: formatOrientationCandidate(orientation.documentedOrientation),
+                interpretation: '0x5C41 combined with 0x5C0F.',
+            },
+            {
+                label: '0x5C45 orientation candidate',
+                value: formatOrientationCandidate(orientation.bodyOrientation),
+                interpretation: '0x5C45 combined with 0x5C0F.',
+            },
+            {
+                label: 'Head-byte orientation candidate',
+                value: formatOrientationCandidate(orientation.headOrientation),
+                interpretation: '0x5C41 combined with 0x5C2F.',
+            },
+            {
+                label: 'Selected state/facing',
+                value: (orientation.state ? orientation.state.label : 'unclassified')
+                    + ' / '
+                    + (orientation.visualFacing || '--'),
+                interpretation: orientation.visualFacingSource || '--',
+            },
+            {
+                label: 'Body position 0x5C09..0x5C0B',
+                value: formatRoomSize(player.body),
+                interpretation: 'Current render anchor for the character proxy.',
+            },
+            {
+                label: 'Head semantic 0x5C20,0x5C2A,0x5C2B',
+                value: formatRoomSize(player.head ? player.head.semanticPosition : null),
+                interpretation: 'Documented head position, kept for comparison.',
+            },
+            {
+                label: 'Head render candidate 0x5C29,0x5C2A,0x5C2B',
+                value: formatRoomSize(player.head ? player.head.renderPositionCandidate : null),
+                interpretation: 'Current visual candidate used by the proxy when close to the body.',
+            },
+        ];
+
+        return [
+            '<div class="knight-lore-stage2-comparison-heading is-secondary">',
+            '<strong>Main character sprite identification</strong>',
+            '<span>room '
+                + escapeHtml(roomLabel)
+                + ', live sprites '
+                + escapeHtml(formatHex(orientation.headSprite, 2))
+                + ' / '
+                + escapeHtml(formatHex(orientation.bodySprite, 2))
+                + ', mirrors '
+                + escapeHtml(formatHex(orientation.bodyMirrorFlag, 2))
+                + ' / '
+                + escapeHtml(formatHex(orientation.headMirrorFlag, 2))
+                + '</span>',
+            '</div>',
+            '<p class="knight-lore-stage2-note">'
+                + 'Focused diagnostic for the first billboard pass. Watch 0x5C41 and 0x5C45 while walking, turning, '
+                + 'and transforming. The table below searches working memory for the confirmed player sprite ranges '
+                + 'and keeps each discovered address in a stable pile.'
+                + '</p>',
+            '<table>',
+            '<thead><tr>',
+            '<th>Field</th>',
+            '<th>Live value</th>',
+            '<th>Interpretation / check</th>',
+            '</tr></thead>',
+            '<tbody>',
+            rows.map(row => (
+                '<tr>' +
+                '<td>' + escapeHtml(row.label) + '</td>' +
+                '<td class="mono">' + escapeHtml(row.value) + '</td>' +
+                '<td>' + escapeHtml(row.interpretation) + '</td>' +
+                '</tr>'
+            )).join(''),
+            '</tbody>',
+            '</table>',
+        ].join('');
+    }
+
+    renderPlayerSpriteMemoryPileTable() {
+        const frame = this.latestFrame;
+        const memoryStart = frame && Number.isFinite(frame.memoryStart) ? frame.memoryStart : null;
+        const memoryEnd = frame && Number.isFinite(frame.memoryEnd) ? frame.memoryEnd : null;
+        const offsets = [];
+        for (
+            let offset = -PLAYER_SPRITE_MEMORY_WINDOW_BEFORE;
+            offset <= PLAYER_SPRITE_MEMORY_WINDOW_AFTER;
+            offset++
+        ) {
+            offsets.push(offset);
+        }
+        const targetLabel = formatHexList(PLAYER_SPRITE_MEMORY_VALUES, 2);
+
+        return [
+            '<div class="knight-lore-stage2-comparison-heading is-secondary">',
+            '<strong>Player sprite focused memory windows</strong>',
+            '<span>targets '
+                + escapeHtml(targetLabel)
+                + ', body '
+                + escapeHtml(formatRecordAddress(PLAYER_BODY_SPRITE_CANDIDATE_ADDRESS))
+                + ', head '
+                + escapeHtml(formatRecordAddress(PLAYER_HEAD_SPRITE_CANDIDATE_ADDRESS))
+                + '</span>',
+            '</div>',
+            '<p class="knight-lore-stage2-note">'
+                + 'Shows fixed working-memory windows around the current body/head sprite-address candidates. '
+                + 'The blue cell is the candidate address; shaded cells contain bytes from the corrected player sprite ranges.'
+                + '</p>',
+            memoryStart === null || memoryEnd === null
+                ? '<p class="knight-lore-stage2-note is-warning">Working memory is not available yet.</p>'
+                : '',
+            '<table>',
+            '<thead><tr>',
+            '<th>#</th>',
+            '<th>Address</th>',
+            '<th>Expression</th>',
+            '<th>Location</th>',
+            '<th>Current</th>',
+            '<th>Class</th>',
+            offsets.map(offset => (
+                '<th class="mono">' + (offset > 0 ? '+' + offset : offset) + '</th>'
+            )).join(''),
+            '</tr></thead>',
+            '<tbody>',
+            memoryStart === null || memoryEnd === null
+                ? [
+                    '<tr>',
+                    '<td colspan="' + (6 + offsets.length) + '">No working memory window available yet.</td>',
+                    '</tr>',
+                ].join('')
+                : PLAYER_SPRITE_FOCUS_WINDOWS.map((entry, index) => {
+                    const currentValue = readFrameMemoryByte(frame, entry.address);
+                    const currentClass = classifyPlayerSpriteMemoryValue(currentValue);
+                    return (
+                        '<tr>' +
+                        '<td class="mono">' + index + '</td>' +
+                        '<td class="mono">' + escapeHtml(formatRecordAddress(entry.address)) + '</td>' +
+                        '<td class="mono">' + escapeHtml(entry.expression) + '</td>' +
+                        '<td>' + escapeHtml(formatDynamicSlotLocation(entry.address)) + '</td>' +
+                        '<td class="mono">' + escapeHtml(formatHex(currentValue, 2)) + '</td>' +
+                        '<td>' + escapeHtml(currentClass) + '</td>' +
+                        offsets.map(offset => {
+                            const address = entry.address + offset;
+                            const value = readFrameMemoryByte(frame, address);
+                            const classes = ['mono'];
+                            if (offset === 0) classes.push('is-selected-byte');
+                            if (PLAYER_SPRITE_MEMORY_VALUE_SET.has(value)) classes.push('is-exact');
+                            return '<td class="' + classes.join(' ') + '" title="'
+                                + escapeHtml(formatRecordAddress(address))
+                                + ' '
+                                + escapeHtml(classifyPlayerSpriteMemoryValue(value))
+                                + '">'
+                                + escapeHtml(formatHex(value, 2))
+                                + '</td>';
+                        }).join('') +
+                        '</tr>'
+                    );
+                }).join(''),
+            '</tbody>',
+            '</table>',
+        ].join('');
+    }
+
     renderSpriteTextureExtractorTable(spriteTextures, colourAttribute) {
         if (!spriteTextures || !spriteTextures.available) {
             return [
@@ -3148,10 +4492,10 @@ export class KnightLoreStage0Renderer {
                 + 'The bit order is treated as most-significant-bit first, left to right.'
                 + '</p>',
             '<p class="knight-lore-stage2-note">'
-                + 'Focused atlas: confirmed wall sprites 0x0A..0x0F, wooden entrances 0x04 and 0x05, '
-                + 'wooden walls 0x80..0x82, and ball animation candidates 0xB2, 0xB3, 0xB6, '
-                + '0xB7. Wall sprites 0x0A..0x0F '
-                + 'and all wooden texture sprites are configured for vertical flipping when displayed or reused.'
+                + 'Focused atlas for the main-character billboard pass: candidate sprites 0x18, 0x19, '
+                + '0x1D, 0x1E, 0x7C, and 0x7E. All previews in this temporary set are vertically flipped. '
+                + 'The raw colour preview is the primary reference for this pass; '
+                + 'the corrected preview remains visible only as a comparison with the existing texture pipeline.'
                 + '</p>',
             '<p class="knight-lore-stage2-note">'
                 + 'Preview canvas uses the current room attribute '
@@ -3392,6 +4736,7 @@ export class KnightLoreStage0Renderer {
         if (this.latestFrame) {
             this.updateObjectWireframes();
             this.updateFull3DObjectModels();
+            this.updatePlayerProxy();
         }
         if (this.lastSpellProbeRows && this.lastSpellProbeRows.length > 0) {
             this.updateSpellMarkerFromProbeRow(this.lastSpellProbeRows[0]);
@@ -3470,6 +4815,7 @@ export class KnightLoreStage0Renderer {
         this.camera.position.copy(target).addScaledVector(direction, CAD_CAMERA_DISTANCE);
         this.camera.up.set(...preset.up).normalize();
         this.camera.lookAt(target);
+        if (this.latestFrame) this.updatePlayerProxy();
         this.updateWallVisibility();
         this.resize();
         this.render();
@@ -3593,6 +4939,19 @@ export class KnightLoreStage0Renderer {
         this.playerBodyMesh.geometry.dispose();
         this.playerHeadMesh.geometry.dispose();
         this.playerPointerMesh.geometry.dispose();
+        this.playerTopBottomMarkerDisk.geometry.dispose();
+        this.playerTopBottomMarkerArrow.geometry.dispose();
+        this.playerTopBottomMarkerDiskMaterial.dispose();
+        this.playerTopBottomMarkerArrowMaterial.dispose();
+        this.playerSpriteBillboardGeometry.dispose();
+        this.playerSpriteBillboardPlaneGeometry.dispose();
+        this.playerSpriteBillboardFullGeometry.dispose();
+        this.playerSpriteBillboardFullPlaneGeometry.dispose();
+        this.playerSpriteBillboardMaterials.forEach(material => {
+            material.dispose();
+        });
+        this.playerSpriteBillboardFallbackTextureMaterial.dispose();
+        this.clearPlayerSpriteBillboardTextureMaterials();
         this.playerHumanMaterial.dispose();
         this.playerWolfMaterial.dispose();
         this.playerUnknownMaterial.dispose();

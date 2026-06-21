@@ -8,8 +8,57 @@ Where X_L, Y_L and Z_L are the low resolution coordinates, the _l is information
 Main Character:
     The head location information is located at 5C20h, 5C2Ah and 5C2Bh for X, Y and Z.
     The body location information is at         5C09h, 5C0Ah and 5C0Bh.
-    Positions 5C41h and 5C45h indicate the head and body sprite codes.
-    Positions 5C0Fh and 5C2Fh contain the mirror flags for orientation.
+    Sprites, as stored in 0x5C08 (body) and 0x5C28 (head):
+        0x10 to 0x15: human body west (6 sprites)
+        0x18 to 0x1D: human body east
+        0x20 to 0x27: human head west (8 sprites)
+        0x28 to 0x2F: human head east
+        0x30 to 0x35: wolf body west (6 sprites)
+        0x38 to 0x3F: wolf body east
+        0x40 to 0x47: wolf head west (8 sprites)
+        0x48 to 0x4F: wolf head east
+        0x5C to 0x5F: transformation (4 sprites)
+    Orientation:
+        Positions 5C41h and 5C45h indicate the head and body sprite codes.
+        Positions 5C0Fh and 5C2Fh contain the mirror flags for orientation.
+        0x5C41 == 0x5C45: 0x18 human west/north, 0x19 human east/south,
+                          0x1D wolf west/north,  0x1E wolf east/south.
+        0x5C0F >= 0x4C -> south/north, else: west/east
+        0x5C2F == 0x7E wolf north
+    Pseudocode for orientation:
+        sprite_body = contents of 0x5c41
+        if sprite_body is 0x18 or 0x19: body is human, else: body is wolf
+        if contents of 0x5c0f >= 0x4c:
+            direction is either North or South
+            if sprite_body is 0x18 or 0x1d:
+                direction is North,
+            else: direction is South
+        else:
+            direction is either west or east
+            if sprite_body is 0x18 or 0x1d:
+                direction is West,
+            else: direction is east
+    Renderer compass/view convention:
+        View names describe the side where the camera is placed, not the direction it looks.
+        North view means the camera is north of the room/character and looks inward, toward the center.
+        Therefore, if the character is facing north and the camera side is north, the rendered billboard should show the front.
+        If the character is facing north and the camera side is south, it should show the back.
+        The same rule is used for east, west, and south.
+        The camera side is computed from the room center to the camera, not from the moving character to the camera.
+        This keeps the chosen billboard side stable while the character walks.
+        Diagonal full-3D character billboard policy:
+            Upper south east (game): east-facing billboard, live game sprite ids.
+            Upper north west: west-facing billboard, opposite live sprite side, final texture mirror in X.
+            Upper south west: south-facing billboard, relative sprite side.
+            Upper north east: north-facing billboard, opposite relative sprite side, final texture mirror in X.
+        Final X mirroring also includes the live character mirror flags:
+            body uses 0x5C0F;
+            head uses 0x5C2F;
+            transformation sprites use either flag.
+        Policy mirror and live mirror are combined as toggles, so two mirrors cancel.
+
+
+ghost: 0x50 to 0x53 (4 sprites)
 
 Current Room
      id: 5C10h
@@ -19,11 +68,12 @@ Current Room
 
 Working memory: between 5BA0h and 6107h
 
-Note: guard head: 0x96: west, 0x97: east
-      guard body: 0x90~0x95: west, 0x98~0x9D: east
-      portcullis: 0x08~0x09 west/east
+Note: portcullis: 0x08~0x09 west/east
       ball: 0xB2~0xB3
       ghost: 0x50~0x52
+
+guard: head: 0x96: west, 0x97: east
+       body: 0x90~0x95: west, 0x98~0x9D: east
 
 items/charms: During the game, the player has to collect and bring to the mage a number of items,
        of 8 different types. I have found this page:
@@ -61,6 +111,7 @@ guard: 0x90~0x95 is the lower part of the back of the guard and
        0x96 is the head, while
        0x97 is the front head, and
        0x98~0x9D are the front view of the legs.
+       0x1E and 0x1F are, without doubt, the head of the guard
 0x08 0x09 portcullis
 0x10~0x15 legs ????
 0x16 gargoyle
