@@ -1237,3 +1237,151 @@ Strict caveats:
 - The diagonal side-swap rules are empirical renderer policy, not recovered game logic.
 - The current result looked correct after the final pass, but the diagonal cases are visually subtle and should be rechecked later with a fresh eye.
 - Mirroring may still need a small future adjustment, but it should be considered separately from front/back side selection.
+
+OBSERVATION: further checks (visual inspection) are needed!!!
+
+## 2026-06-24 - Character Billboard Glitch Fix and Final Diagonal Sprite Policy
+
+Context:
+
+- Returned to the Full 3D main-character billboard renderer after the earlier visual checks showed that the diagonal views still had subtle problems.
+- The work started with a serious-looking sprite corruption glitch and ended with a deliberately manual, per-view/per-facing policy for diagonal sprite perception.
+- The billboard geometry itself remained camera-facing. All fixes in the final pass were about selecting and mirroring the sprite textures applied to those billboards.
+
+Sprite corruption glitch:
+
+- The visible symptom was intermittent corruption or disappearance of the main-character billboard textures, especially after:
+  - human/wolf transformations;
+  - being killed or repelled by the cauldron-room spell/bubbles;
+  - respawn-like transitional frames.
+- At first it looked related to the wolf form because the bug was most often noticed after wolf/death/respawn events.
+- Further testing showed the problem was not fundamentally human-vs-wolf. It was a texture/material stability issue triggered by transitional frames and by our own fallback logic.
+- The most useful diagnostics were the `Player billboard hook` line and the `Player billboard transition trace` table.
+- A frozen glitch showed cases such as:
+  - missing head material despite plausible raw sprite ids;
+  - bad source texture dimensions such as `536x16` or `536x25`, clearly not a valid compact player sprite frame;
+  - temporary mismatch between requested texture sprite, material sprite, and body/head phase alignment.
+- The important conclusion was that the emulator-side working-memory values were usually correct. The failure was downstream, in the billboard texture/material path.
+
+Fixes for the glitch:
+
+- Removed the adjacent-frame fallback for player billboard textures.
+  - That fallback hid the true problem and could make respawn/transformation frames look like corrupted art.
+  - Player billboard materials are now exact: if a material cannot be built, diagnostics should show the failure instead of silently substituting nearby animation frames.
+- Added and used a transition trace for player billboard changes.
+  - It records raw body/head sprites, selected texture sprites, material sprites, diagnostics, mirror state, stored-side state, bypass state, and readiness.
+  - This made it possible to freeze the game during a glitch and identify whether the bug was input, texture extraction, material creation, mirroring, or phase alignment.
+- Added material diagnostics and source-dimension guards.
+  - Texture sources with impossible dimensions for a player sprite are rejected.
+  - This prevented transient or incorrect static-memory captures from replacing known-good compact player sprite materials.
+- Changed static-memory updates so already-built player sprite materials are retained.
+  - Later captures can contain bytes that are valid emulator memory but not valid sprite texture sources for this renderer path.
+  - Once a compact player sprite material is known-good, the renderer keeps it and only fills missing entries.
+- Kept the body/head phase alignment diagnostic, but treated it with suspicion.
+  - It can be useful when body and head animation ranges differ, but it should not be used to paper over bad materials.
+- Added separate cheat checkboxes for infinite lives and immunity.
+  - This helped reproduce real death/respawn behaviour without being forced to keep every debugging poke active.
+  - The earlier always-on immunity made this class of bug harder to detect because it hid some state transitions.
+
+Sprite-side and storage-remap correction:
+
+- After the glitch was fixed, a second issue became clear: front/back sprite selection did not behave correctly.
+- The view policy could request a back/left-looking sprite side, but `resolvePlayerSpriteBillboardStoredTexture()` was remapping every west-family sprite request back to the east-family texture plus horizontal mirror.
+- That remap preserved plausible left/right mirroring but erased the front/back distinction.
+- The remap was disabled for player billboards.
+  - The decoded west/east sprite ranges are valid material sources.
+  - The final mirror state should come from the policy and live mirror flags, not from a hidden west-to-east storage conversion.
+- This was the turning point where the front/back direction tests started to make sense.
+
+Direction-policy clarification:
+
+- We re-confirmed the renderer convention:
+  - view names describe the camera side, not the direction the camera looks;
+  - `North` means the camera is north of the room and looks inward;
+  - if the character faces north and the camera side is north, the front is visible;
+  - if the character faces north and the camera side is south, the back is visible.
+- The character's own facing continues to come from the verified Figure 17 rule:
+  - body sprite from `0x5C41`;
+  - body mirror/axis byte from `0x5C0F`;
+  - threshold `0x4C`;
+  - equivalent head mirror byte `0x5C2F` for head texture mirroring.
+- We also confirmed that billboard geometry must not rotate with the character.
+  - The billboard plane remains chosen for the camera/view.
+  - The sprite texture represents the character front/back/side relation.
+
+Manual perceptual policy:
+
+- The diagonal views are not physically correct 3D views of a real model.
+- They are empirical projections of 2D isometric sprite art, so the final rules were implemented as a manual policy table instead of pretending vector math could solve every case.
+- The policy was refactored from broad toggles into explicit per-facing maps:
+  - `mirrorTextureXByFacing: {north, south, east, west}`;
+  - `swapTextureSideByFacing: {north, south, east, west}`.
+- This was necessary because the earlier toggle model made corrections cancel each other:
+  - a global mirror plus a per-facing mirror could accidentally undo the intended result;
+  - north/south and east/west needed to be controlled independently;
+  - in the north-east view, the perceptual axis behaved counterintuitively, so the explicit map made the final state readable.
+
+Final visually verified policy:
+
+- `Upper south east (game)`:
+  - left untouched;
+  - uses the live Spectrum body/head sprite ids and matches the emulator view.
+- `East` and `West` cardinal views:
+  - use relative sprite selection;
+  - horizontal mirror is enabled when the character faces north/south.
+- `North` and `South` cardinal views:
+  - use the base relative camera-side convention.
+- `Upper south west`:
+  - mirror all facings;
+  - swap front/back for east/west facings.
+- `Upper north east`:
+  - mirror all facings;
+  - final verified front/back swap map is:
+    - `{north: false, south: false, east: true, west: true}`;
+  - this looks odd in policy terms, but it matched the visual tests, confirming that the perceived correction axis is effectively swapped in this diagonal.
+- `Upper north west`:
+  - simplified after several trials;
+  - no extra global/per-facing mirror;
+  - uses the opposite-live sprite side policy relative to the game view.
+
+Implementation notes:
+
+- Updated `PLAYER_SPRITE_BILLBOARD_VIEW_POLICIES` in `runtime/semantic3d.js`.
+- Added comments explaining:
+  - geometry/display side versus sprite interpretation side;
+  - camera-side naming convention;
+  - why per-facing maps are intentional;
+  - why the policy is empirical for diagonal views.
+- Added/kept diagnostics showing:
+  - `camera-side`;
+  - `sprite-ref`;
+  - `relative`;
+  - `texture-side`;
+  - policy mirror;
+  - live mirror;
+  - final mirror;
+  - stored-side information.
+- Rebuilt the generated bundle after each visual-policy change.
+- Incremented the workbench cache key through the debugging passes.
+- Final cache key for this session: `knightlore-stage7-20260624t`.
+
+Verification:
+
+- Rebuilt with webpack after runtime changes.
+- Ran `git diff --check`.
+- Ran the emulator CPU regression test repeatedly.
+  - It passed after the final build.
+  - A few intermediate runs showed a known transient harness desynchronisation pattern with all-opcode mismatches; immediate reruns passed.
+- Visual verification was done interactively by checking:
+  - all cardinal views;
+  - all four upper diagonal views;
+  - human and wolf movement;
+  - north/south and east/west walking;
+  - transformation/respawn-prone states after the glitch fix.
+
+Strict caveats:
+
+- The final diagonal policy is a renderer convention, not recovered game logic.
+- It is intentionally empirical because the source art is 2D isometric sprite art, not a true four-view character model.
+- The debug scaffolding for player billboard transitions remains useful and should not be removed yet.
+- If future character or guard billboards reuse this system, the per-facing policy table should be copied thoughtfully, not assumed to generalise automatically.

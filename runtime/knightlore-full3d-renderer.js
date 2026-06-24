@@ -69,6 +69,7 @@ export const TEXTURED_BACKGROUND_SPRITE_IDS = new Set([
 const PORTCULLIS_PANEL_SIZE = blockUnitsToSceneSize({x: 2, y: 0.1, z: 2});
 const PORTCULLIS_BAR_WIDTH = blockUnitsToSceneSize({x: 0.1, y: 0.1, z: 0.1}).width;
 const TEXTURED_BACKGROUND_WALL_OFFSET = 0.28;
+const TEXTURED_BACKGROUND_QUAD_SCALE = 1.05;
 const ARCH_OUTWARD_OFFSET_FALLBACK = 2;
 const ARCH_EXTRA_OUTWARD_OFFSET = blockUnitsToSceneSize({x: 0.2}).width;
 const WALL_TEXTURE_LEFT_REGISTRATION_OFFSET = 2;
@@ -227,6 +228,36 @@ function isRaisedWallFSprite(record, spriteId) {
     );
 }
 
+function wallTextureMirrorAxis(inwardNormal) {
+    if (!inwardNormal) return null;
+    return Math.abs(inwardNormal.x) >= Math.abs(inwardNormal.z) ? 'x' : 'z';
+}
+
+function mirrorWallTexturePoint(point, axis) {
+    const mirrored = point.clone();
+    if (axis === 'x') mirrored.x *= -1;
+    if (axis === 'z') mirrored.z *= -1;
+    return mirrored;
+}
+
+function mirroredWallTextureCorners(corners) {
+    if (!corners || !corners.inwardNormal) return null;
+    const axis = wallTextureMirrorAxis(corners.inwardNormal);
+    if (!axis) return null;
+
+    return {
+        bottomA: mirrorWallTexturePoint(corners.bottomA, axis),
+        bottomB: mirrorWallTexturePoint(corners.bottomB, axis),
+        topA: mirrorWallTexturePoint(corners.topA, axis),
+        topB: mirrorWallTexturePoint(corners.topB, axis),
+        inwardNormal: corners.inwardNormal.clone().multiplyScalar(-1),
+        outwardOffset: corners.outwardOffset,
+        quadScale: corners.quadScale,
+        mirrorAxis: axis,
+        mirroredFromCanonicalWall: true,
+    };
+}
+
 export class KnightLoreFull3DBackgroundRenderer {
     constructor(group) {
         this.group = group;
@@ -331,12 +362,11 @@ export class KnightLoreFull3DBackgroundRenderer {
     }
 
     createBinaryWallTextureCanvas(sourceCanvas, spriteId) {
-        const transparentBackground = isWoodenTextureSprite(spriteId);
         return createBinaryWallTextureCanvas(
             sourceCanvas,
             rgbFromHexColor(spectrumInkColorFromAttribute(this.colourAttribute)),
             this.wallTextureBinaryThreshold,
-            {transparentBackground}
+            {transparentBackground: true}
         );
     }
 
@@ -366,7 +396,7 @@ export class KnightLoreFull3DBackgroundRenderer {
             ? ricardWallTextureFamilyFromSpriteId(texture.id)
             : null;
         const binaryThreshold = normalizedWallTextureBinaryThreshold(this.wallTextureBinaryThreshold);
-        const transparentPaper = isWoodenTextureSprite(texture.id);
+        const transparentPaper = true;
         const cacheKey = [
             'background',
             texture.id,
@@ -496,17 +526,34 @@ export class KnightLoreFull3DBackgroundRenderer {
             .add(topA)
             .add(topB)
             .multiplyScalar(0.25);
+        if (TEXTURED_BACKGROUND_QUAD_SCALE !== 1) {
+            [bottomA, bottomB, topA, topB].forEach(point => {
+                point.sub(center).multiplyScalar(TEXTURED_BACKGROUND_QUAD_SCALE).add(center);
+            });
+        }
+
         const towardRoomCenter = center.clone().add(normal);
         const awayFromRoomCenter = center.clone().sub(normal);
         if (distanceXZ(towardRoomCenter, new THREE.Vector3()) > distanceXZ(awayFromRoomCenter, new THREE.Vector3())) {
             normal.multiplyScalar(-1);
         }
 
+        const inwardNormal = normal.clone();
         [bottomA, bottomB, topA, topB].forEach(point => {
-            point.addScaledVector(normal, TEXTURED_BACKGROUND_WALL_OFFSET);
+            point.addScaledVector(inwardNormal, -TEXTURED_BACKGROUND_WALL_OFFSET);
         });
 
-        return {bottomA, bottomB, topA, topB};
+        return {
+            bottomA,
+            bottomB,
+            topA,
+            topB,
+            inwardNormal,
+            outwardOffset: TEXTURED_BACKGROUND_WALL_OFFSET,
+            quadScale: TEXTURED_BACKGROUND_QUAD_SCALE,
+            mirrorAxis: wallTextureMirrorAxis(inwardNormal),
+            mirroredFromCanonicalWall: false,
+        };
     }
 
     texturedBackgroundUvs(record) {
@@ -531,7 +578,17 @@ export class KnightLoreFull3DBackgroundRenderer {
         ];
     }
 
-    createTexturedBackgroundMesh(background, record, backgroundIndex, recordIndex, textureRecord, positions, uvs) {
+    createTexturedBackgroundMesh(
+        background,
+        record,
+        backgroundIndex,
+        recordIndex,
+        textureRecord,
+        positions,
+        uvs,
+        cornerInfo = null,
+        variant = 'canonical'
+    ) {
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
         geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
@@ -557,6 +614,18 @@ export class KnightLoreFull3DBackgroundRenderer {
         mesh.userData.spriteId = record.spriteId;
         mesh.userData.spriteKind = texturedBackgroundSpriteKind(record.spriteId);
         mesh.userData.textureKey = textureRecord.key;
+        mesh.userData.wallTextureVariant = variant;
+        mesh.userData.wallTexturePairId = [
+            backgroundIndex,
+            recordIndex,
+            normalizedSpriteId(record.spriteId),
+        ].join(':');
+        if (cornerInfo && cornerInfo.inwardNormal) {
+            mesh.userData.wallTextureInwardNormal = cornerInfo.inwardNormal.clone();
+        }
+        if (cornerInfo && cornerInfo.mirrorAxis) {
+            mesh.userData.wallTextureMirrorAxis = cornerInfo.mirrorAxis;
+        }
         mesh.userData.textureYFlipped = textureRecord.yFlipped;
         if (textureRecord.textureDewarped) {
             mesh.userData.wallDewarp = true;
@@ -571,11 +640,27 @@ export class KnightLoreFull3DBackgroundRenderer {
         if (textureRecord.textureTransparentPaper) {
             mesh.userData.textureTransparentPaper = true;
         }
+        if (positions && positions.length >= 12) {
+            mesh.userData.wallTextureOutwardOffset = TEXTURED_BACKGROUND_WALL_OFFSET;
+            mesh.userData.wallTextureQuadScale = TEXTURED_BACKGROUND_QUAD_SCALE;
+        }
+        if (cornerInfo && cornerInfo.mirroredFromCanonicalWall) {
+            mesh.userData.mirroredFromCanonicalWall = true;
+        }
 
         this.activeTextureKeys.add(textureRecord.key);
         this.texturedQuadCount += 1;
         if (textureRecord.textureDewarped) this.dewarpedQuadCount += 1;
         return mesh;
+    }
+
+    texturedBackgroundPositions(corners) {
+        return [
+            corners.bottomA.x, corners.bottomA.y, corners.bottomA.z,
+            corners.bottomB.x, corners.bottomB.y, corners.bottomB.z,
+            corners.topB.x, corners.topB.y, corners.topB.z,
+            corners.topA.x, corners.topA.y, corners.topA.z,
+        ];
     }
 
     createTexturedBackgroundQuad(background, record, backgroundIndex, recordIndex) {
@@ -585,21 +670,45 @@ export class KnightLoreFull3DBackgroundRenderer {
         const corners = this.texturedBackgroundQuadCorners(record, textureRecord);
         if (!textureRecord || !textureRecord.imageTexture || !corners) return null;
 
-        const positions = [
-            corners.bottomA.x, corners.bottomA.y, corners.bottomA.z,
-            corners.bottomB.x, corners.bottomB.y, corners.bottomB.z,
-            corners.topB.x, corners.topB.y, corners.topB.z,
-            corners.topA.x, corners.topA.y, corners.topA.z,
+        const uvs = this.texturedBackgroundUvs(record);
+        const meshes = [
+            this.createTexturedBackgroundMesh(
+                background,
+                record,
+                backgroundIndex,
+                recordIndex,
+                textureRecord,
+                this.texturedBackgroundPositions(corners),
+                uvs,
+                corners,
+                'canonical'
+            ),
         ];
-        return this.createTexturedBackgroundMesh(
-            background,
-            record,
-            backgroundIndex,
-            recordIndex,
-            textureRecord,
-            positions,
-            this.texturedBackgroundUvs(record)
-        );
+        const oppositeCorners = mirroredWallTextureCorners(corners);
+        if (oppositeCorners) {
+            meshes.push(this.createTexturedBackgroundMesh(
+                background,
+                record,
+                backgroundIndex,
+                recordIndex,
+                textureRecord,
+                this.texturedBackgroundPositions(oppositeCorners),
+                uvs,
+                oppositeCorners,
+                'opposite'
+            ));
+        }
+
+        return meshes.filter(Boolean);
+    }
+
+    addTexturedBackgroundQuadToGroup(group, quad) {
+        if (!quad) return;
+        if (Array.isArray(quad)) {
+            quad.forEach(child => this.addTexturedBackgroundQuadToGroup(group, child));
+            return;
+        }
+        group.add(quad);
     }
 
     addTexturedBackgroundRecords(background, index) {
@@ -608,7 +717,7 @@ export class KnightLoreFull3DBackgroundRenderer {
 
         records.forEach((record, recordIndex) => {
             const quad = this.createTexturedBackgroundQuad(background, record, index, recordIndex);
-            if (quad) group.add(quad);
+            this.addTexturedBackgroundQuadToGroup(group, quad);
         });
 
         if (group.children.length === 0) return 0;

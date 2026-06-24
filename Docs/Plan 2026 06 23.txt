@@ -1,0 +1,31 @@
+Character rendering Debug Plan:
+
+Freeze The Input
+Add a compact “Player billboard input” table showing only raw values before any logic:
+body sprite, head sprite, body/head mirror flags, state, facing, view.
+Exit criterion: these match what you see in the emulator for walking, turning, wolf/human.
+
+Texture Extraction Test
+Show the decoded raw sprite texture and the final billboard texture for the current body/head sprites, side by side:
+raw decoded, flipped Y, flipped X/Y, mirrored variant.
+Exit criterion: if 0x3C already looks corrupted here, the bug is texture extraction/transform, not billboard selection.
+
+Identity Render Mode
+For the canonical south-east game view only, render exactly the live body/head sprite IDs with no phase alignment, no stored-side remap, no policy remap. Only required flips for correct sprite orientation.
+Exit criterion: if this matches the emulator, input and texture generation are good.
+
+Reintroduce View Policy
+Turn on only the view/billboard selection logic: choose the plane facing the camera, but still use live sprites in the game view.
+Exit criterion: south-east remains correct; cardinal/diagonal view plane choice can be checked separately.
+
+Reintroduce Mirror Flags
+Apply 0x5C0F and 0x5C2F mirroring only, with diagnostics saying whether body/head were mirrored.
+Exit criterion: east/west and north/south facing changes match visual expectation.
+
+Test West/East Storage Remap Separately
+Only after the above works, test whether west visual sprites need mirrored east textures. This should be a toggle, not baked in while debugging.
+Exit criterion: if west improves with remap and east stays unchanged, keep it; otherwise remove it.
+
+Phase Alignment Last
+Treat phase alignment as suspicious and keep it disabled until all previous stages pass. If needed, make it diagnostic-first: show “body phase/head phase” without modifying sprites.
+Exit criterion: only introduce alignment if we can prove raw body/head phases are wrong and which half is authoritative.

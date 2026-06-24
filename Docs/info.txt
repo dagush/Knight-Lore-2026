@@ -18,14 +18,14 @@ Main Character:
         0x40 to 0x47: wolf head west (8 sprites)
         0x48 to 0x4F: wolf head east
         0x5C to 0x5F: transformation (4 sprites)
-    Orientation:
+    Orientation Summary:
         Positions 5C41h and 5C45h indicate the head and body sprite codes.
         Positions 5C0Fh and 5C2Fh contain the mirror flags for orientation.
         0x5C41 == 0x5C45: 0x18 human west/north, 0x19 human east/south,
                           0x1D wolf west/north,  0x1E wolf east/south.
         0x5C0F >= 0x4C -> south/north, else: west/east
         0x5C2F == 0x7E wolf north
-    Pseudocode for orientation:
+    Pseudocode for character orientation:
         sprite_body = contents of 0x5c41
         if sprite_body is 0x18 or 0x19: body is human, else: body is wolf
         if contents of 0x5c0f >= 0x4c:

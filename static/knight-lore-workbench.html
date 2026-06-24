@@ -2,7 +2,7 @@
 <html>
     <head>
         <title>JSSpeccy v3</title>
-        <script src="jsspeccy/jsspeccy.js?v=knightlore-stage7-20260621g"></script>
+        <script src="jsspeccy/jsspeccy.js?v=knightlore-stage7-20260624t"></script>
         <style>
             body {
                 background-color: #444;
@@ -42,6 +42,7 @@
             #inventory-poke-panel {
                 display: flex;
                 align-items: center;
+                flex-wrap: wrap;
                 gap: 8px;
                 margin-top: 8px;
                 padding: 8px;
@@ -50,10 +51,16 @@
                 box-sizing: border-box;
                 font: 13px Arial, Helvetica, sans-serif;
             }
-            #inventory-poke-panel input {
+            #inventory-poke-panel input[type="text"] {
                 width: 76px;
                 padding: 3px 5px;
                 font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            }
+            #inventory-poke-panel .cheat-toggle {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                white-space: nowrap;
             }
             #inventory-poke-panel button {
                 min-height: 24px;
@@ -73,10 +80,16 @@
                 min-width: 260px;
                 color: #555;
             }
-            #inventory-poke-status.is-error {
+            #cheat-poke-status {
+                min-width: 220px;
+                color: #555;
+            }
+            #inventory-poke-status.is-error,
+            #cheat-poke-status.is-error {
                 color: #991b1b;
             }
-            #inventory-poke-status.is-ok {
+            #inventory-poke-status.is-ok,
+            #cheat-poke-status.is-ok {
                 color: #166534;
             }
             #knight-lore-stage0 {
@@ -427,11 +440,26 @@
                     {address: 47196, value: 201, label: 'immunity'},
                 ],
             };
-            const KNIGHT_LORE_ACTIVE_POKES = [
-                // Decimal absolute addresses from the newer poke list.
-                ...KNIGHT_LORE_POKE_PRESETS.immunity,
-                ...KNIGHT_LORE_POKE_PRESETS.infiniteLives,
-            ];
+            const KNIGHT_LORE_CHEAT_CONTROLS = {
+                infiniteLives: {
+                    label: 'Infinite lives',
+                    enabled: true,
+                    pokes: KNIGHT_LORE_POKE_PRESETS.infiniteLives,
+                },
+                immunity: {
+                    label: 'Immunity',
+                    enabled: true,
+                    pokes: KNIGHT_LORE_POKE_PRESETS.immunity,
+                },
+            };
+            const KNIGHT_LORE_CHEAT_ORIGINAL_BYTES = new Map();
+            const KNIGHT_LORE_CHEAT_ADDRESS_SET = new Set(
+                Object.values(KNIGHT_LORE_CHEAT_CONTROLS)
+                    .flatMap(cheat => cheat.pokes.map(poke => poke.address & 0xffff))
+            );
+            const KNIGHT_LORE_ACTIVE_POKES = Object.values(KNIGHT_LORE_CHEAT_CONTROLS)
+                .filter(cheat => cheat.enabled)
+                .flatMap(cheat => cheat.pokes);
 
             function hex(value, digits) {
                 return value.toString(16).toUpperCase().padStart(digits, '0');
@@ -472,6 +500,102 @@
                 if (!status) return;
                 status.textContent = message;
                 status.className = state ? 'is-' + state : '';
+            }
+
+            function setCheatPokeStatus(message, state) {
+                const status = document.getElementById('cheat-poke-status');
+                if (!status) return;
+                status.textContent = message;
+                status.className = state ? 'is-' + state : '';
+            }
+
+            function rememberCheatOriginalBytes(payload) {
+                if (!payload || !Array.isArray(payload.results)) return;
+                payload.results.forEach(result => {
+                    const address = Number(result && result.address);
+                    const before = Number(result && result.before);
+                    if (
+                        Number.isFinite(address)
+                        && Number.isFinite(before)
+                        && KNIGHT_LORE_CHEAT_ADDRESS_SET.has(address & 0xffff)
+                        && !KNIGHT_LORE_CHEAT_ORIGINAL_BYTES.has(address & 0xffff)
+                    ) {
+                        KNIGHT_LORE_CHEAT_ORIGINAL_BYTES.set(address & 0xffff, before & 0xff);
+                    }
+                });
+            }
+
+            function cheatRestorePokes(cheatKey) {
+                const cheat = KNIGHT_LORE_CHEAT_CONTROLS[cheatKey];
+                if (!cheat) return null;
+
+                const restorePokes = [];
+                for (const poke of cheat.pokes) {
+                    const address = poke.address & 0xffff;
+                    if (!KNIGHT_LORE_CHEAT_ORIGINAL_BYTES.has(address)) return null;
+                    restorePokes.push({
+                        address,
+                        value: KNIGHT_LORE_CHEAT_ORIGINAL_BYTES.get(address),
+                        label: 'restore ' + poke.label,
+                    });
+                }
+                return restorePokes;
+            }
+
+            function bindCheatPokeControls() {
+                const checkboxes = [...document.querySelectorAll('[data-cheat-key]')];
+                if (checkboxes.length === 0) return;
+
+                checkboxes.forEach(checkbox => {
+                    const cheatKey = checkbox.dataset.cheatKey;
+                    const cheat = KNIGHT_LORE_CHEAT_CONTROLS[cheatKey];
+                    if (!cheat) return;
+                    checkbox.checked = cheat.enabled;
+                    checkbox.addEventListener('change', () => {
+                        const nextEnabled = checkbox.checked;
+                        if (!emu || typeof emu.applyPokes !== 'function') {
+                            checkbox.checked = cheat.enabled;
+                            setCheatPokeStatus('Emulator is not ready yet.', 'error');
+                            return;
+                        }
+
+                        const pokes = nextEnabled ? cheat.pokes : cheatRestorePokes(cheatKey);
+                        if (!pokes) {
+                            checkbox.checked = cheat.enabled;
+                            setCheatPokeStatus('Cannot restore ' + cheat.label + ': original byte not captured.', 'error');
+                            return;
+                        }
+
+                        checkbox.disabled = true;
+                        setCheatPokeStatus((nextEnabled ? 'Enabling ' : 'Disabling ') + cheat.label + '...', '');
+                        emu.applyPokes(pokes).then(payload => {
+                            rememberCheatOriginalBytes(payload);
+                            const ok = payload
+                                && Array.isArray(payload.results)
+                                && payload.results.length === pokes.length
+                                && payload.results.every(result => result.applied && result.readbackMatches);
+                            if (!ok) {
+                                checkbox.checked = cheat.enabled;
+                                setCheatPokeStatus('Cheat poke failed: ' + cheat.label + '.', 'error');
+                                return;
+                            }
+
+                            cheat.enabled = nextEnabled;
+                            checkbox.checked = nextEnabled;
+                            setCheatPokeStatus(
+                                cheat.label + (nextEnabled ? ' enabled.' : ' disabled.'),
+                                'ok'
+                            );
+                        }).catch(error => {
+                            checkbox.checked = cheat.enabled;
+                            setCheatPokeStatus('Cheat poke failed: ' + error.message, 'error');
+                        }).finally(() => {
+                            checkbox.disabled = false;
+                        });
+                    });
+                });
+
+                setCheatPokeStatus('Infinite lives and immunity enabled.', 'ok');
             }
 
             function bindInventoryPokeControl() {
@@ -959,6 +1083,7 @@
                     knightLoreStage0Container: document.getElementById('knight-lore-stage0'),
                     knightLoreStage0DiagnosticsContainer: document.getElementById('knight-lore-stage2-diagnostics'),
                     onPokesApplied: payload => {
+                        rememberCheatOriginalBytes(payload);
                         console.table(payload.results.map(result => ({
                             reason: payload.reason,
                             label: result.label,
@@ -1008,6 +1133,7 @@
                         return emu;
                     },
                     pokePresets: KNIGHT_LORE_POKE_PRESETS,
+                    cheatControls: KNIGHT_LORE_CHEAT_CONTROLS,
                     activePokes: KNIGHT_LORE_ACTIVE_POKES,
                     pokeAddressBase: KNIGHT_LORE_POKE_ADDRESS_BASE,
                     inventorySlot1Address: KNIGHT_LORE_INVENTORY_SLOT_1_ADDRESS,
@@ -1019,6 +1145,7 @@
                     }]),
                 };
                 bindInventoryPokeControl();
+                bindCheatPokeControls();
             }
         </script>
     </head>
@@ -1030,7 +1157,16 @@
                     <label for="inventory-item-code">Inventory 1</label>
                     <input id="inventory-item-code" type="text" inputmode="text" autocomplete="off" placeholder="0x00">
                     <button id="send-inventory-item-code" type="submit">Send</button>
+                    <label class="cheat-toggle">
+                        <input id="toggle-infinite-lives" type="checkbox" data-cheat-key="infiniteLives" checked>
+                        Infinite lives
+                    </label>
+                    <label class="cheat-toggle">
+                        <input id="toggle-immunity" type="checkbox" data-cheat-key="immunity" checked>
+                        Immunity
+                    </label>
                     <span id="inventory-poke-status">Address 23516</span>
+                    <span id="cheat-poke-status">Cheats active</span>
                 </form>
             </div>
             <div id="knight-lore-stage0"></div>
