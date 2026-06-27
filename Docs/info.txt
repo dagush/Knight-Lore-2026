@@ -68,6 +68,36 @@ Current Room
 
 Working memory: between 5BA0h and 6107h
 
+Live graphic object table:
+     Starts at 0x5C08, with up to 40 slots of 0x20 bytes each.
+     Slot layout, from the disassembly:
+        +0 graphic/sprite id
+        +1, +2, +3: X, Y, Z
+        +4, +5, +6: width/radius X, depth/radius Y, height
+        +7 flags:
+            bit 7 = vertical flip
+            bit 6 = horizontal flip
+            bit 5 = wipe, transient
+            bit 4 = draw, transient
+            bit 3 = auto-adjust near arches, player only
+            bit 2 = moveable
+            bit 1 = ignore in 3D calculations
+            bit 0 = near arch, player only
+        +8 room
+        +9, +10, +11: dX, dY, dZ as signed bytes
+        +13 per-object direction/state information
+     Confirmed guard/wizard slots:
+        0x60C8: guard slot. Coordinates and +7 flags are confirmed correct.
+        0x6028 and 0x6048: second guard type, top and lower halves. Coordinates are confirmed correct.
+            This guard walks east/west, so +7 bit 6 does not toggle; the apparent lack of hflip change is expected.
+            The east/west visual side is represented by the sprite id/dX logic, not by hflip.
+        Wizard in the cauldron room: coordinates are confirmed in the dynamic entries paired with background rows 8 and 9.
+            The same +7 flag layout must be used for the wizard; if a row comes from compact comparison data,
+            read the raw flag byte from offset +7.
+     Direction/state note:
+        For NSEW guard/wizard movement, +13 low two bits decode as:
+            0 = west, 1 = north, 2 = east, 3 = south.
+
 Note: portcullis: 0x08~0x09 west/east
       ball: 0xB2~0xB3
       ghost: 0x50~0x52

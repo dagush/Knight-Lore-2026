@@ -43,6 +43,8 @@ export const KNIGHT_LORE_MEMORY = {
         zOffset: 3,
         roomOffset: 8,
     },
+    graphicObjectTableStart: 0x5c08,
+    graphicObjectTableSlots: 40,
 };
 
 const STATIC_TABLES = {
@@ -1279,6 +1281,11 @@ export function extractKnightLoreScene(source, opts = {}) {
         z: KNIGHT_LORE_MEMORY.player.headZ,
     });
     const orientation = parseOrientation(memory, memoryStart);
+    const liveObjectRecords = parseDynamicVisualRecords(memory, memoryStart, {
+        ...opts,
+        dynamicRoomStart: KNIGHT_LORE_MEMORY.graphicObjectTableStart,
+        maxDynamicVisualSlots: KNIGHT_LORE_MEMORY.graphicObjectTableSlots,
+    });
     const dynamicVisualRecords = parseDynamicVisualRecords(memory, memoryStart, opts);
     const backgroundComparison = compareStaticBackgroundsToDynamic(staticLocation, dynamicVisualRecords);
     const collectableItems = parseCollectableItems(
@@ -1339,6 +1346,9 @@ export function extractKnightLoreScene(source, opts = {}) {
             dynamicStart: KNIGHT_LORE_MEMORY.dynamicRoomStart,
             dynamicSlotSize: KNIGHT_LORE_MEMORY.dynamicVisualSlotSize,
             dynamicHeader: readBytes(memory, memoryStart, KNIGHT_LORE_MEMORY.dynamicRoomStart, 8),
+            liveObjectStart: KNIGHT_LORE_MEMORY.graphicObjectTableStart,
+            liveObjectSlotCount: KNIGHT_LORE_MEMORY.graphicObjectTableSlots,
+            liveObjectRecords,
             dynamicVisualRecords,
             sprites: dynamicVisualRecords,
             collectableItems,

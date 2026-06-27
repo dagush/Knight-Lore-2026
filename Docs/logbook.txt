@@ -1385,3 +1385,171 @@ Strict caveats:
 - It is intentionally empirical because the source art is 2D isometric sprite art, not a true four-view character model.
 - The debug scaffolding for player billboard transitions remains useful and should not be removed yet.
 - If future character or guard billboards reuse this system, the per-facing policy table should be copied thoughtfully, not assumed to generalise automatically.
+
+## 2026-06-27 - Guard and Wizard Sprite Billboards
+
+Context:
+
+- Continued Stage 7 using `Docs/Plan 2026 06 25.txt`.
+- The goal was to generalize the already validated main-character billboard work to live non-player actors, especially guards and the cauldron-room wizard/mage.
+- This was deliberately treated as a new actor pipeline, not a blind copy of the player renderer:
+  - the main character has human/wolf/transformation state and special body/head phase logic;
+  - guards and the wizard are simpler, but their sprite families, live slots, and hflip behaviour still needed their own diagnostics.
+
+Working-memory actor identification:
+
+- Read `Docs/knightlore.asm` and used the disassembly together with live room diagnostics.
+- Confirmed that the ASM-style object table starts at `0x5C08`, with 0x20-byte slots.
+- Added compact actor diagnostics for live object slots, actor candidates, and focused guard/wizard rows.
+- Confirmed guard/wizard actor data:
+  - `0x60C8`: guard slot with correct XYZ coordinates and usable `+7` hflip flags.
+  - `0x6028` and `0x6048`: second guard type, top and lower halves, with correct XYZ coordinates.
+  - These guards walk east/west, so the apparent lack of hflip changes is expected in that case.
+  - Wizard/mage rows are represented through the live dynamic rows already used by the background comparison path in room `0x88`.
+- Confirmed `+13` low two bits as a useful NSEW facing clue for guard/wizard movement:
+  - `0`: west;
+  - `1`: north;
+  - `2`: east;
+  - `3`: south.
+- Confirmed `+7` bit 6 as horizontal flip (`hflip`) for these actors.
+
+Sprite inventory:
+
+- Added focused sprite previews for non-player actors:
+  - guard square heads: `0x1E..0x1F`;
+  - guard head east/west pair: `0x96..0x97`;
+  - guard/wizard lower halves: `0x90..0x95` and `0x98..0x9D`;
+  - wizard heads: `0x9E..0x9F`.
+- Used the same upright texture-buffer path as the player billboards.
+- Confirmed that actor sprite previews need the same buffer-flip treatment that made the main-character sprites readable.
+
+Geometry baseline:
+
+- Kept the geometry-only actor billboard baseline while adding textures.
+- Replaced the old placeholder/fallback boxes for guard and wizard in Full 3D with two stacked quads:
+  - lower/body quad;
+  - upper/head quad.
+- Kept the wireframe overlay controlled by the existing `Wireframe` checkbox.
+- Confirmed the old guard/wizard box suppression continued to work in Full 3D.
+- Kept Schematic mode separate; it still uses its simpler representation and does not inherit the Full 3D actor billboard texturing choices.
+
+Generic material helper:
+
+- Generalized the player sprite material helper into a reusable sprite-billboard material path.
+- The shared helper now handles:
+  - sprite id lookup;
+  - mask/colour expansion;
+  - buffer X/Y flipping;
+  - optional final horizontal mirror;
+  - alpha-plane selection and fallback;
+  - diagnostics for missing or bad-dimension textures.
+- Player-only concepts were kept out of the generic actor helper:
+  - no human/wolf state;
+  - no transformation sprite handling;
+  - no player-specific body/head phase alignment;
+  - no player diagonal policy table.
+- Added a compact material preview canvas that shows actual cached player and live actor material output.
+
+Canonical game-view actor texturing:
+
+- First textured only the canonical `Upper south east (game)` view.
+- Used live actor sprite ids directly:
+  - lower record sprite id to lower quad;
+  - upper record sprite id to upper quad.
+- Applied only the mandatory texture-buffer orientation and `+7` hflip.
+- Confirmed the guard and wizard front/back appearance in the game view was correct.
+- Fixed a lower-body disappearance bug in back-facing cases:
+  - the symptom was that the body disappeared when the actor was going away from the camera;
+  - this affected both guards and the wizard, so it was a generic actor material-selection problem, not a single sprite bug.
+
+Actor side policy and fallback:
+
+- Added actor facing resolution from:
+  - signed velocity bytes `+9/+10` when non-zero;
+  - `+13` low two bits;
+  - sprite-family side as a final clue.
+- Kept `+7` bit 6 as hflip only, not as a full direction source.
+- Added a live actor billboard policy table in the diagnostics.
+- The table reports:
+  - actor;
+  - selected billboard side;
+  - actor facing;
+  - relative view;
+  - lower/upper live-to-material sprite mapping;
+  - final mirror;
+  - texture side;
+  - policy fix flags.
+- Added material-level visibility checking:
+  - if a remapped actor material has no visible alpha pixels, the renderer tries the opposite side with the same animation phase;
+  - if that also fails, it falls back to the live sprite id.
+- This fixed the case where the previous no-flicker policy accidentally made the body vanish completely.
+
+Cardinal views:
+
+- Extended guard/wizard billboards from the game view to the four cardinal views.
+- Reused the shared camera-side selector:
+  - view names still describe where the camera is placed;
+  - selected billboard plane is a display plane;
+  - sprite side and mirroring are a separate texture decision.
+- Confirmed the actor billboards remain stable while guards/wizard move.
+- The live actor policy table became the main verification tool for these cases.
+
+Diagonal view policy:
+
+- Added an actor-specific diagonal policy table.
+- The actor table follows the same structural idea as the player policy but remains separate:
+  - `textureStrategy`;
+  - `swapTextureSideByFacing`;
+  - `mirrorTextureXByFacing`.
+- Front/back swapping and horizontal mirroring are independent choices.
+- Tested and tuned the four upper diagonal views:
+  - `Upper south east (game)`;
+  - `Upper south west`;
+  - `Upper north east`;
+  - `Upper north west`.
+- Final verified actor diagonal state:
+  - `Upper south east (game)`: live sprite ids, unchanged.
+  - `Upper north west`: perfect with the opposite-live actor policy.
+  - `Upper south west`: needs front/back exchange for north/south movement.
+  - `Upper north east`: also needs front/back exchange for north/south movement.
+- After the last policy adjustment, all actor views were visually verified as correct.
+
+Implementation notes:
+
+- Main edited files:
+  - `runtime/semantic3d.js`;
+  - `static/knight-lore-workbench.html`;
+  - `Docs/info.txt`;
+  - `runtime/knightlore.js`.
+- Added/updated actor diagnostics:
+  - focused guard/wizard object rows;
+  - all live object slots;
+  - live actor candidates;
+  - live actor billboard policy;
+  - shared material helper preview.
+- Removed obsolete player debug checkboxes for phase/storage bypass from the HTML UI.
+- Kept the player billboard renderer intact while reusing only the safe shared material-building pieces.
+- Incremented the workbench cache key through the actor-billboard passes.
+- Final cache key for this session: `knightlore-stage7-20260627e`.
+
+Verification:
+
+- Ran JavaScript syntax checks with the bundled Node runtime.
+- Ran `git diff --check`.
+- Rebuilt with webpack after the final actor policy change.
+- Webpack still reports only the known bundle-size warnings.
+- Visual verification was done interactively for:
+  - guard movement;
+  - wizard/mage movement in room `0x88`;
+  - canonical game view;
+  - four cardinal views;
+  - all four upper diagonal views;
+  - hflip cases;
+  - back-facing actor cases that previously flickered or disappeared.
+
+Strict caveats:
+
+- The final actor diagonal policy is visual/perceptual, not directly recovered game logic.
+- The guard and wizard are still represented as two textured billboards, not true 3D meshes.
+- The fallback from remapped side to opposite/live sprite is a renderer robustness guard, not a semantic statement about the game data.
+- Ghosts have not yet been pulled into this pass; they should be treated as their own simpler actor class when needed.

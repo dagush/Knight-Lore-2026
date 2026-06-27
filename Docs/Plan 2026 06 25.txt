@@ -1,0 +1,373 @@
+Knight Lore 2026 guard and wizard billboard texturing plan - 2026-06-25
+=======================================================================
+
+Purpose
+-------
+Replace the current geometry-only guard and wizard billboards with textured
+sprite billboards, reusing the main-character billboard pipeline and the
+confirmed live working-memory records.
+
+This must be done conservatively. The geometry-only pass is now a good baseline:
+the guards and wizard are detected from working memory, old Full 3D fallback
+boxes are suppressed, and each actor is represented as two stacked quads, lower
+and upper, just like the main character. The next stage should add textures
+without disturbing that placement.
+
+Core rule
+---------
+Do not solve sprite selection, mirroring, texture extraction, and view-policy
+correction all at once.
+
+The main character work taught us that small sprite errors can look like memory
+corruption, bad orientation, or bad geometry depending on the camera view. For
+guards and the wizard, every step should have a visible diagnostic before the
+next correction is introduced.
+
+Known confirmed data
+--------------------
+- Live graphic object table starts at 0x5C08, with slots of 0x20 bytes.
+- Slot layout:
+  - +0 sprite/graphic id.
+  - +1, +2, +3: X, Y, Z.
+  - +4, +5, +6: dimensions.
+  - +7 flags.
+  - +8 room.
+  - +9, +10, +11: dX, dY, dZ as signed bytes.
+  - +13 per-object direction/state.
+- +7 flag byte:
+  - bit 7: vflip.
+  - bit 6: hflip.
+  - bit 5: wipe, transient.
+  - bit 4: draw, transient.
+  - bit 2: moveable.
+  - bit 1: ignore in 3D calculations.
+- For NSEW guard/wizard movement, +13 low two bits decode as:
+  - 0 = west.
+  - 1 = north.
+  - 2 = east.
+  - 3 = south.
+- Confirmed actor slots:
+  - 0x60C8: guard, coordinates and +7 hflip confirmed.
+  - 0x6028 and 0x6048: second guard type, top and lower halves; coordinates
+    confirmed. This guard walks east/west, so hflip not toggling is expected.
+  - wizard in room 0x88: coordinates confirmed through the dynamic rows paired
+    with Static background vs dynamic slots rows 8 and 9.
+- Confirmed sprite families:
+  - guard head E/W: 0x96, 0x97.
+  - guard head square/NSEW: 0x1E, 0x1F.
+  - guard/wizard lower half: 0x90..0x95 and 0x98..0x9D.
+  - wizard head: 0x9E, 0x9F.
+
+Stage 7.0 - Freeze the geometry-only baseline
+---------------------------------------------
+
+Goal:
+Keep the current correct guard/wizard placement as a regression baseline.
+
+Tasks:
+- Leave the current wireframe actor billboards available while textures are
+  being added.
+- Keep the existing "Wireframe" checkbox meaningful for these actor billboards
+  or add a separate actor-wireframe diagnostic if needed.
+- Confirm the summary line "Full 3D live actor billboards" remains stable while
+  guards/wizard move.
+- Do not change actor pairing, actor anchoring, or old-box suppression during
+  the first texture tests.
+
+Verification:
+- Guard/wizard quads still track the emulator correctly.
+- Each actor is still represented as two stacked quads.
+- No old fallback box appears for guard or wizard in Full 3D.
+
+Exit criteria:
+- The current geometry-only view can be used to compare every textured pass.
+
+Strict doubt:
+- If a texture appears misplaced, first check whether the wireframe baseline is
+  still correct. Do not debug texture orientation and geometry at the same time.
+
+Stage 7.1 - Sprite extraction inventory for non-player actors
+-------------------------------------------------------------
+
+Goal:
+Prove that all guard and wizard sprites can be decoded cleanly before attaching
+them to Three.js materials.
+
+Tasks:
+- Reuse the existing static-memory sprite extractor.
+- Add a focused sprite preview group for:
+  - 0x1E..0x1F;
+  - 0x90..0x9D;
+  - 0x96..0x97;
+  - 0x9E..0x9F.
+- Show the raw decoded sprite and the final texture-buffer version side by side
+  if useful, as we did during the main-character debugging.
+- Confirm vertical flip handling. The main-character sprites needed buffer
+  flipping before they looked correct; guard/wizard sprites should use the same
+  texture construction path unless proven otherwise.
+
+Verification:
+- Every listed sprite is readable from static memory.
+- Each sprite preview has the expected apparent orientation.
+- No sprite is silently replaced by a fallback material.
+
+Exit criteria:
+- A table or preview confirms which exact sprite ids are usable as materials.
+
+Strict doubts:
+- The lower-half sprites 0x90..0x9D are shared by guard and wizard logic. Do
+  not assume a sprite is "guard only" or "wizard only" until it is observed in
+  the live records.
+
+Stage 7.2 - Generalize the player texture-material helper
+---------------------------------------------------------
+
+Goal:
+Reuse the robust parts of the main-character texturing pipeline without copying
+the whole player-specific state machine.
+
+Tasks:
+- Extract or wrap the texture-material creation used by the player billboards:
+  - sprite id lookup;
+  - mask/colour texture expansion;
+  - buffer X/Y flip;
+  - optional horizontal mirror;
+  - diagnostic for missing or bad-dimension textures.
+- Keep player-specific concepts out of the generic helper:
+  - human/wolf state;
+  - transformation sprites;
+  - body/head phase alignment;
+  - player-only view-policy correction tables.
+- Keep material caches keyed by sprite id and mirror state, either shared or
+  actor-specific.
+
+Verification:
+- Existing main-character billboards do not change.
+- Guard/wizard texture materials can be created without affecting player
+  material caches.
+
+Exit criteria:
+- A guard/wizard sprite id can produce a Three.js material through the same
+  low-level texture path as the player.
+
+Strict recommendation:
+- Do not introduce fallback-to-neighbouring-sprite logic. If a texture is
+  missing, show the diagnostic loudly and keep the neutral material.
+
+Stage 7.3 - Canonical game-view texturing only
+----------------------------------------------
+
+Goal:
+Attach textures to guard/wizard billboards in the canonical south-east game view
+before attempting all camera views.
+
+Tasks:
+- In Full 3D game view, select the same billboard plane currently selected by
+  geometry-only mode.
+- Apply textures to the lower and upper quads:
+  - lowerRecord sprite id to lower quad;
+  - topRecord sprite id to upper quad.
+- Use the live sprite ids directly.
+- Apply only the mandatory buffer flip needed to display sprites upright.
+- Do not apply hflip, front/back remapping, or phase alignment in this first
+  pass.
+- Keep the wireframe visible or toggleable over the textured quads.
+
+Verification:
+- In game view, the guard/wizard sprite halves are attached to the correct quads.
+- The sprite is upright.
+- The lower and upper halves line up well enough to identify the actor.
+- The emulator remains the visual ground truth.
+
+Exit criteria:
+- A guard and the wizard can be seen textured in game view with no orientation
+  policy beyond direct live sprite selection.
+
+Strict doubt:
+- The wizard rows come from the background-comparison path in room 0x88. If the
+  top/lower order looks wrong, sort or classify the two rows explicitly before
+  touching texture mirroring.
+
+Stage 7.4 - Add hflip from the live flags
+-----------------------------------------
+
+Goal:
+Apply the documented horizontal mirror bit without confusing it with transient
+wipe/draw bits.
+
+Tasks:
+- Read only +7 bit 6 for hflip.
+- Ignore +7 bit 5 and bit 4 for orientation decisions.
+- Apply hflip as a texture mirror, not as a geometry rotation.
+- Keep body/lower and head/upper mirror decisions independent if their flags
+  differ.
+- Show a compact diagnostic:
+  - raw +7;
+  - hflip yes/no;
+  - final mirror yes/no;
+  - sprite id used for lower/upper.
+
+Verification:
+- Guard 0x60C8 still matches visual orientation.
+- Guard 0x6028/0x6048 remains sensible even though hflip does not toggle during
+  east/west walking.
+- Wizard flags can be inspected in the same format as guard flags.
+
+Exit criteria:
+- The canonical view is correct with live hflip enabled.
+
+Strict doubt:
+- If the east/west guard appears wrong while hflip is stable, do not force
+  hflip. The disassembly and tests indicate this case can be represented by
+  sprite id/dX logic instead.
+
+Stage 7.5 - Guard/wizard side and phase policy
+----------------------------------------------
+
+Goal:
+Only introduce sprite-family remapping if the direct live sprites are not enough
+for non-canonical views.
+
+Tasks:
+- First, derive actor facing from available data:
+  - +9/+10 signed velocity when non-zero;
+  - +13 low two bits for NSEW guard/wizard movement;
+  - sprite id family as a visual-side clue;
+  - +7 bit 6 only as hflip, not full direction.
+- Compare this against the current selected billboard camera side.
+- Test whether the live sprite id already represents the correct visual side.
+- If not, introduce a small actor-specific side policy, separate from the
+  player policy.
+- Do not phase-align lower/head sprites until there is visual evidence that the
+  two halves are mismatched.
+
+Verification:
+- Walking guard/wizard animation does not show sudden front/back swaps.
+- Lower and upper halves remain synchronized enough to read as one character.
+- The diagnostics explain which source determined facing: dX/dY, +13, sprite
+  family, or held previous direction.
+
+Exit criteria:
+- Actor facing is stable while moving and while changing direction.
+
+Strict recommendation:
+- Treat phase alignment as suspicious. The main-character bug showed that
+  "helpful" phase correction can hide or create sprite glitches.
+
+Stage 7.6 - Extend from game view to cardinal views
+---------------------------------------------------
+
+Goal:
+Make guard/wizard sprite selection work from north, south, east, and west views
+using the same camera-side convention as the player.
+
+Tasks:
+- Reuse the shared camera-side selector:
+  - view names describe where the camera is placed;
+  - selected billboard plane is a display plane;
+  - sprite selection is a separate texture-side decision.
+- Test one cardinal view at a time:
+  - east;
+  - west;
+  - south;
+  - north.
+- Use a small diagnostic line for each actor:
+  - actor;
+  - selected billboard side;
+  - actor facing;
+  - relative view;
+  - lower/upper sprite ids;
+  - mirror flags.
+
+Verification:
+- The actor remains visible and oriented in every cardinal view.
+- Sprite side changes are explainable and not tied to actor position in the
+  room.
+
+Exit criteria:
+- Cardinal views are no worse than the main-character billboard views before
+  manual diagonal tuning.
+
+Strict doubt:
+- Guard/wizard art may not have enough distinct views to make all four camera
+  sides look physically correct. If so, prefer consistent readable billboards
+  over pretending we have true 3D character art.
+
+Stage 7.7 - Diagonal view policy
+--------------------------------
+
+Goal:
+Apply diagonal-view corrections only after canonical and cardinal views are
+stable.
+
+Tasks:
+- Start from the player diagonal policy as a reference, not as a blind copy.
+- Test the four upper diagonal views:
+  - upper south-east, game;
+  - upper south-west;
+  - upper north-east;
+  - upper north-west.
+- Keep any correction tables actor-specific and per-facing, as with the player.
+- Make front/back swapping and horizontal mirroring independent choices.
+
+Verification:
+- Upper south-east remains closest to the Spectrum view.
+- The other diagonal views are readable and stable while actors walk.
+- No correction for one axis breaks the other axis.
+
+Exit criteria:
+- All diagonal views have explicit, documented policies.
+
+Strict recommendation:
+- Expect some manual tuning. The main-character diagonal policy needed empirical
+  correction because the sprites are perspective drawings, not orthographic 3D
+  renders.
+
+Stage 7.8 - Diagnostics and cleanup
+-----------------------------------
+
+Goal:
+Keep enough diagnostics to catch mistakes, but do not leave the page cluttered.
+
+Tasks:
+- Add a compact "Live actor billboard" diagnostic section only if necessary.
+- Keep the focused guard/wizard slots table as the byte-level truth source.
+- Remove temporary sprite preview groups once the mapping is stable, or reduce
+  them to a small focused set.
+- Document final sprite ranges and policy choices in `Docs/info.txt`.
+
+Verification:
+- A future bug report can identify:
+  - which live record was used;
+  - which sprite id was textured;
+  - which mirror flag was applied;
+  - which camera-side policy selected the billboard.
+
+Exit criteria:
+- The code path is simple enough to reuse for ghost-like actors later.
+- The page remains readable during normal testing.
+
+Strict doubts
+-------------
+- The guard/wizard lower-half sprite ranges overlap conceptually with multiple
+  actor types, so sprite id alone may be ambiguous.
+- The wizard is currently special because its confirmed rows are associated
+  with static/dynamic background comparison rows in room 0x88. This may remain
+  a special case unless a cleaner live actor identity is discovered.
+- Diagonal views may require actor-specific manual correction, even if the data
+  path is perfectly correct.
+- The ghost should not be pulled into this pass unless guard and wizard texture
+  selection is stable. It is likely simpler as a single billboard, but it should
+  get its own short validation step.
+
+Recommended implementation order
+--------------------------------
+1. Add guard/wizard sprite preview diagnostics.
+2. Generalize the player texture helper.
+3. Texture guard/wizard in game view using direct live sprite ids.
+4. Add +7 bit 6 hflip only.
+5. Validate actor facing from dX/dY and +13.
+6. Extend to cardinal views.
+7. Tune diagonal views.
+8. Document final mapping and remove temporary clutter.
+

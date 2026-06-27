@@ -8,11 +8,6 @@ import {
     SPRITE_TEXTURE_VERTICAL_FLIP_IDS,
 } from './knightlore-full3d-renderer.js';
 import {
-    createBinaryWallTextureCanvas,
-    createIsometricSlopeCorrectedCanvas,
-    isometricTextureShearSlopeForSpriteId,
-} from './knightlore-wall-dewarp.js';
-import {
     BASIC_BLOCK_GAME_SIZE,
     blockUnitsToSceneSize,
     createFull3DObjectModel,
@@ -226,6 +221,7 @@ const ITEM_MARKER_SIZE = 5;
 const SPELL_MARKER_SIZE = 6;
 const CAULDRON_ROOM_ID = 0x88;
 const KNIGHT_LORE_SCRATCH_START = 0x5ba0;
+const KNIGHT_LORE_GRAPHIC_OBJECT_TABLE_START = 0x5c08;
 const KNIGHT_LORE_DYNAMIC_ROOM_START = 0x5c88;
 const KNIGHT_LORE_DYNAMIC_VISUAL_SLOT_SIZE = 0x20;
 const SPELL_PROBE_ADDRESS = 0x5c68;
@@ -281,6 +277,15 @@ const ROOM_COLOUR_CHANGE_HOLD_FRAMES = 90;
 const WIZARD_DYNAMIC_ROWS_BY_ROOM = {
     [CAULDRON_ROOM_ID]: [8, 9],
 };
+const FOCUSED_GUARD_OBJECTS = [
+    {address: 0x60c8, label: 'guard observed slot', source: 'direct ASM object slot 38'},
+    {address: 0x6028, label: 'guard type 2 top?', source: 'direct ASM object slot 33'},
+    {address: 0x6048, label: 'guard type 2 lower?', source: 'direct ASM object slot 34'},
+];
+const FOCUSED_WIZARD_COMPARISON_ROWS = [8, 9];
+const FOCUSED_WIZARD_WINDOW_STARTS = [0x5d88, 0x5da8];
+const FOCUSED_WIZARD_WINDOW_LENGTH = 0x20;
+const FOCUSED_WIZARD_CHANGE_HOLD_FRAMES = 45;
 
 const ITEM_MARKER_COLORS = [
     0xef4444,
@@ -322,6 +327,93 @@ const SPECIAL_OBJECT_WIREFRAME_COLORS = {
     wizard: 0xa855f7,
 };
 const LIVE_FIXED_BACKGROUND_IDS = new Set([0x12]);
+const LIVE_ACTOR_MAX_ROWS = 40;
+const LIVE_ACTOR_SPRITE_RANGES = [
+    {start: 0x9e, end: 0x9f, actor: 'wizard', part: 'top', label: 'wizard top'},
+    {start: 0x96, end: 0x97, actor: 'guard', part: 'top', label: 'guard top E/W'},
+    {start: 0x1e, end: 0x1f, actor: 'guard', part: 'top', label: 'guard top square'},
+    {start: 0x90, end: 0x95, actor: 'guard/wizard', part: 'lower', label: 'guard/wizard lower'},
+    {start: 0x98, end: 0x9d, actor: 'guard/wizard', part: 'lower', label: 'guard/wizard lower'},
+    {start: 0x50, end: 0x53, actor: 'ghost', part: 'single', label: 'ghost'},
+];
+const LIVE_ACTOR_BILLBOARD_ACTORS = new Set(['guard', 'wizard']);
+const LIVE_ACTOR_BILLBOARD_COLORS = {
+    guard: 0x22c55e,
+    wizard: 0xa855f7,
+};
+const LIVE_ACTOR_BILLBOARD_DIRECTION_OFFSET = 0.18;
+const LIVE_ACTOR_TEXTURE_VIEW_PRESETS = new Set([
+    'game',
+    'right',
+    'left',
+    'front',
+    'back',
+    'upper-front-left',
+    'upper-back-right',
+    'upper-back-left',
+]);
+// Stage 7.7 non-player actor view policy. This intentionally mirrors the
+// player's policy shape without sharing the table: guards and the wizard use a
+// different sprite family, so front/back side choice and horizontal mirroring
+// must remain actor-specific and independently tuneable per facing.
+const LIVE_ACTOR_BILLBOARD_VIEW_POLICIES = {
+    game: {
+        label: 'actor-game-live-south-east',
+        textureStrategy: 'live',
+        mirrorTextureX: false,
+        mirrorTextureXByFacing: {north: false, south: false, east: false, west: false},
+        swapTextureSideByFacing: {north: false, south: false, east: false, west: false},
+    },
+    right: {
+        label: 'actor-cardinal-camera-east',
+        textureStrategy: 'relative',
+        mirrorTextureX: false,
+        mirrorTextureXByFacing: {north: false, south: false, east: false, west: false},
+        swapTextureSideByFacing: {north: false, south: false, east: false, west: false},
+    },
+    left: {
+        label: 'actor-cardinal-camera-west',
+        textureStrategy: 'relative',
+        mirrorTextureX: false,
+        mirrorTextureXByFacing: {north: false, south: false, east: false, west: false},
+        swapTextureSideByFacing: {north: false, south: false, east: false, west: false},
+    },
+    front: {
+        label: 'actor-cardinal-camera-south',
+        textureStrategy: 'relative',
+        mirrorTextureX: false,
+        mirrorTextureXByFacing: {north: false, south: false, east: false, west: false},
+        swapTextureSideByFacing: {north: false, south: false, east: false, west: false},
+    },
+    back: {
+        label: 'actor-cardinal-camera-north',
+        textureStrategy: 'relative',
+        mirrorTextureX: false,
+        mirrorTextureXByFacing: {north: false, south: false, east: false, west: false},
+        swapTextureSideByFacing: {north: false, south: false, east: false, west: false},
+    },
+    'upper-back-left': {
+        label: 'actor-opposite-game-north-west',
+        textureStrategy: 'opposite-live',
+        mirrorTextureX: false,
+        mirrorTextureXByFacing: {north: false, south: false, east: false, west: false},
+        swapTextureSideByFacing: {north: false, south: false, east: false, west: false},
+    },
+    'upper-front-left': {
+        label: 'actor-chosen-south-west',
+        textureStrategy: 'relative',
+        mirrorTextureX: false,
+        mirrorTextureXByFacing: {north: true, south: true, east: true, west: true},
+        swapTextureSideByFacing: {north: true, south: true, east: true, west: true},
+    },
+    'upper-back-right': {
+        label: 'actor-chosen-north-east',
+        textureStrategy: 'relative',
+        mirrorTextureX: false,
+        mirrorTextureXByFacing: {north: true, south: true, east: true, west: true},
+        swapTextureSideByFacing: {north: true, south: true, east: true, west: true},
+    },
+};
 
 const FIXED_BACKGROUND_MARKERS = {
     0x12: {
@@ -408,19 +500,41 @@ const SPRITE_TEXTURE_PREVIEW_MARGIN = 12;
 const SPRITE_TEXTURE_PREVIEW_LABEL_HEIGHT = 34;
 const SPRITE_TEXTURE_PREVIEW_IMAGE_MAX_WIDTH = 174;
 const SPRITE_TEXTURE_PREVIEW_IMAGE_MAX_HEIGHT = 168;
+const PLAYER_MATERIAL_DEBUG_CANVAS_WIDTH = 620;
+const PLAYER_MATERIAL_DEBUG_ROW_HEIGHT = 86;
+const PLAYER_MATERIAL_DEBUG_PREVIEW_MAX_WIDTH = 112;
+const PLAYER_MATERIAL_DEBUG_PREVIEW_MAX_HEIGHT = 70;
+const PLAYER_MATERIAL_DEBUG_MAX_ROWS = 8;
 const SPRITE_TEXTURE_PREVIEW_GROUPS = [
     {
-        label: 'main character / guard candidates',
+        label: 'guard square heads',
+        forceYFlip: true,
+        ids: [0x1e, 0x1f],
+    },
+    {
+        label: 'guard body/head sequence',
         forceYFlip: true,
         ids: [
-            0x18, 0x19, 0x1d, 0x1e,
-            0x7c, 0x7e,
+            0x90, 0x91, 0x92, 0x93,
+            0x94, 0x95, 0x96, 0x97,
+            0x98, 0x99, 0x9a, 0x9b,
+            0x9c, 0x9d,
         ],
+    },
+    {
+        label: 'wizard heads',
+        forceYFlip: true,
+        ids: [0x9e, 0x9f],
     },
 ];
 function formatHex(value, digits = 2) {
     if (value === null || value === undefined) return '--';
     return '0x' + value.toString(16).toUpperCase().padStart(digits, '0');
+}
+
+function formatBinaryByte(value) {
+    if (!Number.isFinite(value)) return '--------';
+    return (value & 0xff).toString(2).padStart(8, '0');
 }
 
 function formatBackgroundIds(ids) {
@@ -468,6 +582,61 @@ function formatRoomSize(size) {
         size.y === null || size.y === undefined ? '--' : size.y,
         size.z === null || size.z === undefined ? '--' : size.z,
     ].join(', ');
+}
+
+function signedByte(value) {
+    if (!Number.isFinite(value)) return null;
+    const byte = value & 0xff;
+    return byte >= 0x80 ? byte - 0x100 : byte;
+}
+
+function formatSignedByte(value) {
+    const signed = signedByte(value);
+    if (signed === null) return '--';
+    return (signed > 0 ? '+' : '') + signed;
+}
+
+function formatSignedByteTriplet(bytes, startOffset) {
+    if (!Array.isArray(bytes)) return '--, --, --';
+    return [
+        formatSignedByte(bytes[startOffset]),
+        formatSignedByte(bytes[startOffset + 1]),
+        formatSignedByte(bytes[startOffset + 2]),
+    ].join(', ');
+}
+
+function formatObjectSlotByteField(offset) {
+    switch (offset) {
+        case 0x00: return '+0 sprite';
+        case 0x01: return '+1 X';
+        case 0x02: return '+2 Y';
+        case 0x03: return '+3 Z';
+        case 0x04: return '+4 width';
+        case 0x05: return '+5 depth';
+        case 0x06: return '+6 height';
+        case 0x07: return '+7 flags';
+        case 0x08: return '+8 room';
+        case 0x09: return '+9 dX';
+        case 0x0a: return '+10 dY';
+        case 0x0b: return '+11 dZ';
+        case 0x0c: return '+12 counter/OOB';
+        case 0x0d: return '+13 info';
+        case 0x0e: return '+14 dX adjust';
+        case 0x0f: return '+15 dY adjust';
+        case 0x10: return '+16 ptr/id lo';
+        case 0x11: return '+17 ptr/id hi';
+        case 0x12: return '+18 pixel X adjust';
+        case 0x13: return '+19 pixel Y adjust';
+        case 0x18: return '+24 sprite width';
+        case 0x19: return '+25 sprite height';
+        case 0x1a: return '+26 pixel X';
+        case 0x1b: return '+27 pixel Y';
+        case 0x1c: return '+28 old width';
+        case 0x1d: return '+29 old height';
+        case 0x1e: return '+30 old pixel X';
+        case 0x1f: return '+31 old pixel Y';
+        default: return '+' + formatHex(offset, 2);
+    }
 }
 
 function formatSceneVector(vector) {
@@ -559,13 +728,36 @@ function formatRecordAddress(value) {
     return formatHex(value, 4);
 }
 
+function flagRawFromRecord(record) {
+    if (!record) return null;
+    if (Number.isFinite(record.flags)) return record.flags;
+    if (record.flags && Number.isFinite(record.flags.raw)) return record.flags.raw;
+    if (Array.isArray(record.slotRaw) && Number.isFinite(record.slotRaw[7])) return record.slotRaw[7];
+    if (Array.isArray(record.raw) && Number.isFinite(record.raw[7])) return record.raw[7];
+    return null;
+}
+
 function formatVisualRecord(record) {
     if (!record) return '--';
     return [
         formatHex(record.spriteId, 2),
         formatRoomSize(record.position),
         formatRoomSize(record.dimensions),
-        formatHex(record.flags, 2),
+        formatHex(flagRawFromRecord(record), 2),
+    ].join(' | ');
+}
+
+function formatDynamicRecordSlotTail(record) {
+    if (!record) return '--';
+    const slotRaw = Array.isArray(record.slotRaw) ? record.slotRaw : [];
+    const objectSlot = objectTableSlotIndexForAddress(record.address);
+    const flags = liveActorFlagsFromRecord(record);
+    return [
+        'obj ' + (objectSlot === null ? '--' : objectSlot),
+        '+7 ' + formatLiveActorFlags(flags),
+        '+8 ' + formatHex(slotRaw[8], 2),
+        '+9..11 ' + formatSignedByteTriplet(slotRaw, 9),
+        '+13 ' + formatHex(slotRaw[13], 2),
     ].join(' | ');
 }
 
@@ -810,6 +1002,551 @@ function dynamicObjectCandidatesForRoom(room) {
     return dynamicRecords.filter(record => (
         isDynamicObjectCandidate(record, backgroundPrefixCount)
     ));
+}
+
+function liveObjectRecordsForRoom(room) {
+    if (!room) return [];
+    return room.liveObjectRecords || room.dynamicVisualRecords || room.sprites || [];
+}
+
+function objectTableSlotIndexForAddress(address) {
+    if (!Number.isFinite(address) || address < KNIGHT_LORE_GRAPHIC_OBJECT_TABLE_START) return null;
+
+    const offset = address - KNIGHT_LORE_GRAPHIC_OBJECT_TABLE_START;
+    if (offset % KNIGHT_LORE_DYNAMIC_VISUAL_SLOT_SIZE !== 0) return null;
+    return offset / KNIGHT_LORE_DYNAMIC_VISUAL_SLOT_SIZE;
+}
+
+function classifyLiveActorSpriteId(spriteId) {
+    if (!Number.isFinite(spriteId)) return null;
+    const id = spriteId & 0xff;
+    const range = LIVE_ACTOR_SPRITE_RANGES.find(candidate => (
+        id >= candidate.start && id <= candidate.end
+    ));
+    return range ? {...range, spriteId: id} : null;
+}
+
+function liveActorFlagsFromRecord(record) {
+    const raw = flagRawFromRecord(record);
+    if (raw === null) {
+        return {
+            raw,
+            vflip: false,
+            hflip: false,
+            wipe: false,
+            draw: false,
+            moveable: false,
+            ignore3d: false,
+            nearArch: false,
+        };
+    }
+
+    return {
+        raw,
+        vflip: Boolean(raw & 0x80),
+        hflip: Boolean(raw & 0x40),
+        wipe: Boolean(raw & 0x20),
+        draw: Boolean(raw & 0x10),
+        moveable: Boolean(raw & 0x04),
+        ignore3d: Boolean(raw & 0x02),
+        nearArch: Boolean(raw & 0x01),
+    };
+}
+
+function formatLiveActorFlags(flags) {
+    if (!flags || !Number.isFinite(flags.raw)) return '--';
+    return [
+        formatHex(flags.raw, 2),
+        'b' + formatBinaryByte(flags.raw),
+        'hf:' + (flags.hflip ? 'Y' : 'n'),
+        'vf:' + (flags.vflip ? 'Y' : 'n'),
+        'wipe:' + (flags.wipe ? 'Y' : 'n'),
+        'draw:' + (flags.draw ? 'Y' : 'n'),
+        'mov:' + (flags.moveable ? 'Y' : 'n'),
+        'ign:' + (flags.ignore3d ? 'Y' : 'n'),
+        'near:' + (flags.nearArch ? 'Y' : 'n'),
+    ].join(' ');
+}
+
+function formatGuardWizardInfoByte(value) {
+    if (!Number.isFinite(value)) return '--';
+    const directions = ['west', 'north', 'east', 'south'];
+    const direction = directions[value & 0x03] || '--';
+    return [
+        formatHex(value, 2),
+        'dir:' + direction,
+        'raw-low2:' + (value & 0x03),
+    ].join(' ');
+}
+
+function liveActorSpriteVisualSide(spriteId) {
+    if (!Number.isFinite(spriteId)) return null;
+    const id = spriteId & 0xff;
+    if (
+        (id >= 0x90 && id <= 0x95)
+        || id === 0x96
+        || id === 0x1e
+        || id === 0x9e
+    ) {
+        return 'west';
+    }
+    if (
+        (id >= 0x98 && id <= 0x9d)
+        || id === 0x97
+        || id === 0x1f
+        || id === 0x9f
+    ) {
+        return 'east';
+    }
+    return null;
+}
+
+function liveActorFacingFromVelocity(record) {
+    const slotRaw = record && Array.isArray(record.slotRaw) ? record.slotRaw : [];
+    const dx = signedByte(slotRaw[9]);
+    const dy = signedByte(slotRaw[10]);
+    if (!Number.isFinite(dx) || !Number.isFinite(dy) || (dx === 0 && dy === 0)) return null;
+
+    if (Math.abs(dx) >= Math.abs(dy)) {
+        return {
+            facing: dx >= 0 ? 'east' : 'west',
+            source: '+9/+10 velocity',
+            detail: formatSignedByte(dx) + ',' + formatSignedByte(dy),
+        };
+    }
+
+    return {
+        facing: dy >= 0 ? 'south' : 'north',
+        source: '+9/+10 velocity',
+        detail: formatSignedByte(dx) + ',' + formatSignedByte(dy),
+    };
+}
+
+function liveActorFacingFromInfoByte(record) {
+    const slotRaw = record && Array.isArray(record.slotRaw) ? record.slotRaw : [];
+    const value = slotRaw[13];
+    if (!Number.isFinite(value)) return null;
+    const directions = ['west', 'north', 'east', 'south'];
+    return {
+        facing: directions[value & 0x03] || null,
+        source: '+13 low2',
+        detail: formatHex(value, 2),
+    };
+}
+
+function liveActorFacingFromSpriteSide(record) {
+    const visualSide = liveActorSpriteVisualSide(record ? record.spriteId : null);
+    if (!visualSide) return null;
+    return {
+        facing: visualSide,
+        source: 'sprite-side clue',
+        detail: formatHex(record.spriteId, 2),
+    };
+}
+
+function resolveLiveActorFacing(spec) {
+    const records = [spec ? spec.lowerRecord : null, spec ? spec.topRecord : null].filter(Boolean);
+    const velocityFacing = records
+        .map(record => liveActorFacingFromVelocity(record))
+        .find(Boolean);
+    if (velocityFacing) return velocityFacing;
+
+    const infoFacing = records
+        .map(record => liveActorFacingFromInfoByte(record))
+        .find(Boolean);
+    if (infoFacing) return infoFacing;
+
+    const spriteFacing = records
+        .map(record => liveActorFacingFromSpriteSide(record))
+        .find(Boolean);
+    if (spriteFacing) return spriteFacing;
+
+    return {
+        facing: null,
+        source: 'unknown',
+        detail: '--',
+    };
+}
+
+function liveActorTextureSideForRelativeView(relativeView) {
+    switch (relativeView) {
+        case 'front':
+        case 'right':
+            return 'east';
+        case 'back':
+        case 'left':
+            return 'west';
+        default:
+            return null;
+    }
+}
+
+function liveActorOppositeTextureSide(textureSide) {
+    if (textureSide === 'east') return 'west';
+    if (textureSide === 'west') return 'east';
+    return null;
+}
+
+function liveActorSpriteIdForTextureSide(spriteId, textureSide) {
+    if (!Number.isFinite(spriteId) || (textureSide !== 'east' && textureSide !== 'west')) {
+        return spriteId;
+    }
+
+    const id = spriteId & 0xff;
+    if (id >= 0x90 && id <= 0x95) {
+        return textureSide === 'west' ? id : 0x98 + (id - 0x90);
+    }
+    if (id >= 0x98 && id <= 0x9d) {
+        return textureSide === 'east' ? id : 0x90 + (id - 0x98);
+    }
+    if (id === 0x96 || id === 0x97) return textureSide === 'west' ? 0x96 : 0x97;
+    if (id === 0x1e || id === 0x1f) return textureSide === 'west' ? 0x1e : 0x1f;
+    if (id === 0x9e || id === 0x9f) return textureSide === 'west' ? 0x9e : 0x9f;
+    return id;
+}
+
+function liveActorBillboardPolicyForViewPreset(viewPreset) {
+    return LIVE_ACTOR_BILLBOARD_VIEW_POLICIES[viewPreset] || {
+        label: 'actor-relative-default',
+        textureStrategy: 'relative',
+        mirrorTextureX: false,
+        mirrorTextureXByFacing: {north: false, south: false, east: false, west: false},
+        swapTextureSideByFacing: {north: false, south: false, east: false, west: false},
+    };
+}
+
+function liveActorBillboardPolicyFacingMirror(viewPolicy, actorFacing) {
+    const byFacing = viewPolicy && viewPolicy.mirrorTextureXByFacing;
+    if (
+        byFacing
+        && actorFacing
+        && Object.prototype.hasOwnProperty.call(byFacing, actorFacing)
+    ) {
+        return Boolean(byFacing[actorFacing]);
+    }
+
+    const facings = viewPolicy && Array.isArray(viewPolicy.mirrorTextureXWhenFacing)
+        ? viewPolicy.mirrorTextureXWhenFacing
+        : [];
+    return facings.includes(actorFacing);
+}
+
+function liveActorBillboardPolicySwapTextureSide(viewPolicy, actorFacing) {
+    const byFacing = viewPolicy && viewPolicy.swapTextureSideByFacing;
+    if (
+        byFacing
+        && actorFacing
+        && Object.prototype.hasOwnProperty.call(byFacing, actorFacing)
+    ) {
+        return Boolean(byFacing[actorFacing]);
+    }
+
+    const facings = viewPolicy && Array.isArray(viewPolicy.swapTextureSideWhenFacing)
+        ? viewPolicy.swapTextureSideWhenFacing
+        : [];
+    return facings.includes(actorFacing);
+}
+
+function liveActorTextureSideForStrategy(strategy, relativeTextureSide, liveSpriteId) {
+    if (strategy === 'live') {
+        return liveActorSpriteVisualSide(liveSpriteId) || relativeTextureSide;
+    }
+    if (strategy === 'opposite-live') {
+        return liveActorOppositeTextureSide(
+            liveActorSpriteVisualSide(liveSpriteId) || relativeTextureSide
+        ) || relativeTextureSide;
+    }
+    if (strategy === 'opposite-relative') {
+        return liveActorOppositeTextureSide(relativeTextureSide) || relativeTextureSide;
+    }
+    return relativeTextureSide;
+}
+
+function resolveLiveActorTextureSelection({spec, record, selectedFacing, viewPreset}) {
+    const flags = liveActorFlagsFromRecord(record);
+    const actorFacing = resolveLiveActorFacing(spec);
+    const relativeView = actorFacing.facing && selectedFacing
+        ? relativePlayerView(actorFacing.facing, selectedFacing)
+        : 'unknown';
+    const liveSpriteId = record ? record.spriteId : null;
+    const viewPolicy = liveActorBillboardPolicyForViewPreset(viewPreset);
+    const textureStrategy = viewPolicy.textureStrategy || 'relative';
+    const textureEnabled = liveActorTextureEnabledForView(viewPreset);
+    const baseRelativeTextureSide = liveActorTextureSideForRelativeView(relativeView);
+    const strategyTextureSide = liveActorTextureSideForStrategy(
+        textureStrategy,
+        baseRelativeTextureSide,
+        liveSpriteId
+    );
+    const policySwapTextureSide = liveActorBillboardPolicySwapTextureSide(
+        viewPolicy,
+        actorFacing.facing
+    );
+    const textureSide = policySwapTextureSide
+        ? liveActorOppositeTextureSide(strategyTextureSide) || strategyTextureSide
+        : strategyTextureSide;
+    const textureSpriteId = textureStrategy === 'live'
+        ? liveSpriteId
+        : textureSide
+        ? liveActorSpriteIdForTextureSide(liveSpriteId, textureSide)
+        : liveSpriteId;
+    const policyMirrorTextureX = Boolean(viewPolicy && viewPolicy.mirrorTextureX);
+    const policyFacingMirrorTextureX = liveActorBillboardPolicyFacingMirror(
+        viewPolicy,
+        actorFacing.facing
+    );
+
+    return {
+        textureEnabled,
+        liveSpriteId,
+        textureSpriteId,
+        textureSide: textureSide || '--',
+        actorFacing,
+        relativeView,
+        textureStrategy,
+        viewPolicyLabel: viewPolicy.label,
+        policyMirrorTextureX,
+        policyFacingMirrorTextureX,
+        policySwapTextureSide,
+        mirrorTextureX: combinePlayerSpriteTextureMirrors(
+            flags.hflip,
+            policyMirrorTextureX,
+            policyFacingMirrorTextureX
+        ),
+        flags,
+        allowSideFallback: textureStrategy !== 'live',
+        policy: viewPolicy.label + '/' + textureStrategy,
+    };
+}
+
+function liveActorTextureEnabledForView(viewPreset) {
+    return LIVE_ACTOR_TEXTURE_VIEW_PRESETS.has(viewPreset);
+}
+
+function liveActorPairForRecord(record, recordsByObjectSlot) {
+    const objectSlot = objectTableSlotIndexForAddress(record ? record.address : null);
+    const classification = classifyLiveActorSpriteId(record ? record.spriteId : null);
+    if (objectSlot === null || !classification) {
+        return {
+            objectSlot,
+            pairLabel: '--',
+            actor: classification ? classification.actor : 'unknown',
+        };
+    }
+
+    const previous = recordsByObjectSlot.get(objectSlot - 1);
+    const next = recordsByObjectSlot.get(objectSlot + 1);
+    const previousClass = classifyLiveActorSpriteId(previous ? previous.spriteId : null);
+    const nextClass = classifyLiveActorSpriteId(next ? next.spriteId : null);
+
+    if (classification.part === 'top') {
+        const nextIsLower = nextClass && nextClass.part === 'lower';
+        return {
+            objectSlot,
+            pairLabel: nextIsLower
+                ? 'lower obj ' + (objectSlot + 1) + ' ' + formatHex(next.spriteId, 2)
+                : 'top only',
+            actor: classification.actor,
+        };
+    }
+
+    if (classification.part === 'lower') {
+        const previousIsTop = previousClass && previousClass.part === 'top';
+        return {
+            objectSlot,
+            pairLabel: previousIsTop
+                ? 'top obj ' + (objectSlot - 1) + ' ' + formatHex(previous.spriteId, 2)
+                : 'lower only',
+            actor: previousIsTop ? previousClass.actor : classification.actor,
+        };
+    }
+
+    return {
+        objectSlot,
+        pairLabel: 'single',
+        actor: classification.actor,
+    };
+}
+
+function liveActorCandidatesForRoom(room) {
+    if (!room) return [];
+    const dynamicRecords = liveObjectRecordsForRoom(room);
+    const recordsByObjectSlot = new Map();
+    dynamicRecords.forEach(record => {
+        const objectSlot = objectTableSlotIndexForAddress(record ? record.address : null);
+        if (objectSlot !== null) recordsByObjectSlot.set(objectSlot, record);
+    });
+
+    return dynamicRecords
+        .map(record => {
+            const objectSlot = objectTableSlotIndexForAddress(record ? record.address : null);
+            if (objectSlot !== null && objectSlot < 4) return null;
+
+            const classification = classifyLiveActorSpriteId(record ? record.spriteId : null);
+            if (!classification) return null;
+
+            const pair = liveActorPairForRecord(record, recordsByObjectSlot);
+            return {
+                record,
+                classification,
+                flags: liveActorFlagsFromRecord(record),
+                objectSlot: pair.objectSlot,
+                actor: pair.actor,
+                pairLabel: pair.pairLabel,
+            };
+        })
+        .filter(Boolean);
+}
+
+function liveObjectRecordsByObjectSlotForRoom(room) {
+    const recordsByObjectSlot = new Map();
+    liveObjectRecordsForRoom(room).forEach(record => {
+        const objectSlot = objectTableSlotIndexForAddress(record ? record.address : null);
+        if (objectSlot !== null) recordsByObjectSlot.set(objectSlot, record);
+    });
+    return recordsByObjectSlot;
+}
+
+function shouldRenderAsLiveActorBillboard(record, recordsByObjectSlot) {
+    const classification = classifyLiveActorSpriteId(record ? record.spriteId : null);
+    if (!classification) return false;
+    if (LIVE_ACTOR_BILLBOARD_ACTORS.has(classification.actor)) return true;
+    if (classification.part !== 'lower' || !recordsByObjectSlot) return false;
+
+    const pair = liveActorPairForRecord(record, recordsByObjectSlot);
+    return LIVE_ACTOR_BILLBOARD_ACTORS.has(pair.actor);
+}
+
+function liveActorBillboardSpecsForRoom(room) {
+    if (!room) return [];
+    const records = liveObjectRecordsForRoom(room);
+    const recordsByObjectSlot = liveObjectRecordsByObjectSlotForRoom(room);
+
+    const consumedSlots = new Set();
+    const consumedAddresses = new Set();
+    const specs = [];
+    records.forEach(record => {
+        const objectSlot = objectTableSlotIndexForAddress(record ? record.address : null);
+        if (objectSlot === null || objectSlot < 4 || consumedSlots.has(objectSlot)) return;
+
+        const classification = classifyLiveActorSpriteId(record ? record.spriteId : null);
+        if (
+            !classification
+            || classification.part !== 'top'
+            || !LIVE_ACTOR_BILLBOARD_ACTORS.has(classification.actor)
+        ) {
+            return;
+        }
+
+        const previous = recordsByObjectSlot.get(objectSlot - 1) || null;
+        const next = recordsByObjectSlot.get(objectSlot + 1) || null;
+        const previousClass = classifyLiveActorSpriteId(previous ? previous.spriteId : null);
+        const nextClass = classifyLiveActorSpriteId(next ? next.spriteId : null);
+        const lowerRecord = nextClass && nextClass.part === 'lower'
+            ? next
+            : (previousClass && previousClass.part === 'lower' ? previous : null);
+        const lowerSlot = objectTableSlotIndexForAddress(lowerRecord ? lowerRecord.address : null);
+
+        consumedSlots.add(objectSlot);
+        if (Number.isFinite(record.address)) consumedAddresses.add(record.address);
+        if (lowerSlot !== null) consumedSlots.add(lowerSlot);
+        if (lowerRecord && Number.isFinite(lowerRecord.address)) consumedAddresses.add(lowerRecord.address);
+        specs.push({
+            actor: classification.actor,
+            topRecord: record,
+            lowerRecord,
+            objectSlot,
+            lowerSlot,
+            label: classification.actor + ' billboard',
+        });
+    });
+
+    const wizardRows = WIZARD_DYNAMIC_ROWS_BY_ROOM[room.id] || [];
+    if (wizardRows.length > 0 && room.backgroundComparison && Array.isArray(room.backgroundComparison.rows)) {
+        const wizardRecords = wizardRows
+            .map(rowIndex => {
+                const row = room.backgroundComparison.rows.find(candidate => candidate.index === rowIndex);
+                return row ? row.dynamicRecord : null;
+            })
+            .filter(record => (
+                record
+                && !consumedAddresses.has(record.address)
+                && isFinitePosition(record.position)
+            ))
+            .sort((a, b) => (a.position.z || 0) - (b.position.z || 0));
+
+        if (wizardRecords.length > 0) {
+            const lowerRecord = wizardRecords[0] || null;
+            const topRecord = wizardRecords[1] || null;
+            specs.push({
+                actor: 'wizard',
+                topRecord,
+                lowerRecord,
+                objectSlot: objectTableSlotIndexForAddress(topRecord ? topRecord.address : null),
+                lowerSlot: objectTableSlotIndexForAddress(lowerRecord ? lowerRecord.address : null),
+                label: 'wizard billboard from comparison rows',
+            });
+        }
+    }
+
+    return specs;
+}
+
+function liveActorBillboardRecordAddressesForRoom(room) {
+    const addresses = new Set();
+    liveActorBillboardSpecsForRoom(room).forEach(spec => {
+        [spec.topRecord, spec.lowerRecord].forEach(record => {
+            if (record && Number.isFinite(record.address)) addresses.add(record.address);
+        });
+    });
+    return addresses;
+}
+
+function classifyLiveObjectRecord(record) {
+    const objectSlot = objectTableSlotIndexForAddress(record ? record.address : null);
+    if (objectSlot === 0) return 'player lower';
+    if (objectSlot === 1) return 'player upper';
+    if (objectSlot === 2 || objectSlot === 3) return 'special/item slot';
+
+    const actor = classifyLiveActorSpriteId(record ? record.spriteId : null);
+    if (actor) return actor.label;
+
+    const semantic = classifyDynamicObjectRecord(record);
+    return semantic && semantic.label ? semantic.label : 'live object';
+}
+
+function focusedActorSlotRowsForRoom(room) {
+    const liveRecords = liveObjectRecordsForRoom(room);
+    const liveRecordByAddress = new Map();
+    liveRecords.forEach(record => {
+        if (Number.isFinite(record.address)) liveRecordByAddress.set(record.address, record);
+    });
+
+    const comparisonRows = room && room.backgroundComparison && Array.isArray(room.backgroundComparison.rows)
+        ? room.backgroundComparison.rows
+        : [];
+    const rows = FOCUSED_GUARD_OBJECTS.map(guard => ({
+        label: guard.label,
+        source: guard.source,
+        expected: formatRecordAddress(guard.address),
+        record: liveRecordByAddress.get(guard.address) || null,
+        staticSource: null,
+    }));
+
+    FOCUSED_WIZARD_COMPARISON_ROWS.forEach(rowIndex => {
+        const comparisonRow = comparisonRows.find(row => row.index === rowIndex);
+        rows.push({
+            label: 'wizard comparison row ' + rowIndex,
+            source: 'Static background vs dynamic slots row ' + rowIndex,
+            expected: comparisonRow && comparisonRow.staticSource
+                ? formatStaticSource(comparisonRow.staticSource)
+                : 'row ' + rowIndex,
+            record: comparisonRow ? comparisonRow.dynamicRecord : null,
+            staticSource: comparisonRow ? comparisonRow.staticSource : null,
+        });
+    });
+
+    return rows;
 }
 
 function isSchematicPortcullisRecord(record) {
@@ -1204,6 +1941,21 @@ function playerSpriteBillboardPolicyForViewPreset(viewPreset) {
     };
 }
 
+function selectedSpriteBillboardFacingForView(viewPreset, facingScores) {
+    const viewPolicy = playerSpriteBillboardPolicyForViewPreset(viewPreset);
+    const selectedFacing = viewPolicy.cameraSide
+        || (facingScores && facingScores.signedBest ? facingScores.signedBest.id : null);
+    const selectedScore = facingScores && Array.isArray(facingScores.scores)
+        ? facingScores.scores.find(score => score.id === selectedFacing) || null
+        : null;
+    return {
+        viewPolicy,
+        selectedFacing,
+        selectedScore,
+        textureReferenceSide: viewPolicy.textureReferenceSide || selectedFacing,
+    };
+}
+
 function playerSpriteBillboardPolicyFacingMirror(viewPolicy, characterFacing) {
     const byFacing = viewPolicy && viewPolicy.mirrorTextureXByFacing;
     if (
@@ -1248,6 +2000,17 @@ function playerSpriteBillboardMirrorFromFlag(flag, threshold = 0x4c) {
 
 function combinePlayerSpriteTextureMirrors(...mirrors) {
     return mirrors.reduce((enabled, mirror) => enabled !== Boolean(mirror), false);
+}
+
+function countExpandedSpritePlanePixels(expanded, plane = 'image') {
+    if (!expanded) return 0;
+    const pixels = plane === 'mask' ? expanded.maskPixels : expanded.imagePixels;
+    if (!pixels) return 0;
+    let count = 0;
+    for (let index = 0; index < pixels.length; index++) {
+        if (pixels[index]) count += 1;
+    }
+    return count;
 }
 
 function rotationForFacing(facing) {
@@ -1376,12 +2139,16 @@ export class KnightLoreStage0Renderer {
         this.playerBillboardTransitionTrace = [];
         this.lastPlayerBillboardTransitionKey = '';
         this.playerSpriteBillboardMaterialDiagnostics = new Map();
+        this.actorSpriteBillboardMaterialDiagnostics = new Map();
         this.lastRoomColorAttribute = null;
         this.roomColourProbeRoomId = null;
         this.previousRoomColourProbe = null;
         this.lastRoomColourProbe = null;
         this.lastRoomColourProbeChange = null;
         this.lastSpecialDynamicMarkers = [];
+        this.lastLiveActorBillboardCount = 0;
+        this.lastLiveActorBillboardTextureCount = 0;
+        this.lastLiveActorBillboardWireframesVisible = false;
         this.lastResolvedCollectableItemRecords = [];
         this.lastFull3DObjectCount = 0;
         this.lastFull3DRecognizedObjectCount = 0;
@@ -1396,6 +2163,7 @@ export class KnightLoreStage0Renderer {
         this.lastSpellProbeChangedHits = 0;
         this.lastSpellProbeValueCounts = new Map();
         this.previousSpellProbeWindows = new Map();
+        this.focusedWizardByteWindowState = new Map();
         this.playerSpriteMemoryPile = [];
         this.playerSpriteMemoryPileAddresses = new Set();
         this.playerSpriteMemoryPileOverflow = 0;
@@ -1476,8 +2244,8 @@ export class KnightLoreStage0Renderer {
         this.wallTextureDewarpControl.appendChild(this.wallTextureDewarpToggleLabel);
         this.playerSpriteBillboardWireframeToggleLabel = document.createElement('label');
         this.playerSpriteBillboardWireframeToggleLabel.className = 'knight-lore-dewarp-toggle knight-lore-billboard-wireframe-toggle';
-        this.playerSpriteBillboardWireframeToggleLabel.title = 'Character billboard wireframe';
-        this.playerSpriteBillboardWireframeToggleLabel.setAttribute('aria-label', 'Character billboard wireframe');
+        this.playerSpriteBillboardWireframeToggleLabel.title = 'Player and actor billboard wireframes';
+        this.playerSpriteBillboardWireframeToggleLabel.setAttribute('aria-label', 'Player and actor billboard wireframes');
         this.playerSpriteBillboardWireframeToggle = document.createElement('input');
         this.playerSpriteBillboardWireframeToggle.type = 'checkbox';
         this.playerSpriteBillboardWireframeToggle.checked = this.playerSpriteBillboardWireframeEnabled;
@@ -1491,40 +2259,6 @@ export class KnightLoreStage0Renderer {
         );
         this.playerSpriteBillboardWireframeToggleLabel.appendChild(document.createTextNode('Wireframe'));
         this.wallTextureDewarpControl.appendChild(this.playerSpriteBillboardWireframeToggleLabel);
-        this.playerSpriteBillboardPhaseBypassDebugToggleLabel = document.createElement('label');
-        this.playerSpriteBillboardPhaseBypassDebugToggleLabel.className = 'knight-lore-dewarp-toggle knight-lore-billboard-phase-bypass-toggle';
-        this.playerSpriteBillboardPhaseBypassDebugToggleLabel.title = 'Bypass player body/head phase alignment in game view';
-        this.playerSpriteBillboardPhaseBypassDebugToggleLabel.setAttribute('aria-label', 'Bypass player body/head phase alignment in game view');
-        this.playerSpriteBillboardPhaseBypassDebugToggle = document.createElement('input');
-        this.playerSpriteBillboardPhaseBypassDebugToggle.type = 'checkbox';
-        this.playerSpriteBillboardPhaseBypassDebugToggle.checked = this.playerSpriteBillboardPhaseBypassDebugEnabled;
-        this.playerSpriteBillboardPhaseBypassDebugToggle.addEventListener('change', () => {
-            this.setPlayerSpriteBillboardPhaseBypassDebugEnabled(
-                this.playerSpriteBillboardPhaseBypassDebugToggle.checked
-            );
-        });
-        this.playerSpriteBillboardPhaseBypassDebugToggleLabel.appendChild(
-            this.playerSpriteBillboardPhaseBypassDebugToggle
-        );
-        this.playerSpriteBillboardPhaseBypassDebugToggleLabel.appendChild(document.createTextNode('No phase align'));
-        this.wallTextureDewarpControl.appendChild(this.playerSpriteBillboardPhaseBypassDebugToggleLabel);
-        this.playerSpriteBillboardStorageBypassDebugToggleLabel = document.createElement('label');
-        this.playerSpriteBillboardStorageBypassDebugToggleLabel.className = 'knight-lore-dewarp-toggle knight-lore-billboard-storage-bypass-toggle';
-        this.playerSpriteBillboardStorageBypassDebugToggleLabel.title = 'Bypass player stored-side texture remap in game view';
-        this.playerSpriteBillboardStorageBypassDebugToggleLabel.setAttribute('aria-label', 'Bypass player stored-side texture remap in game view');
-        this.playerSpriteBillboardStorageBypassDebugToggle = document.createElement('input');
-        this.playerSpriteBillboardStorageBypassDebugToggle.type = 'checkbox';
-        this.playerSpriteBillboardStorageBypassDebugToggle.checked = this.playerSpriteBillboardStorageBypassDebugEnabled;
-        this.playerSpriteBillboardStorageBypassDebugToggle.addEventListener('change', () => {
-            this.setPlayerSpriteBillboardStorageBypassDebugEnabled(
-                this.playerSpriteBillboardStorageBypassDebugToggle.checked
-            );
-        });
-        this.playerSpriteBillboardStorageBypassDebugToggleLabel.appendChild(
-            this.playerSpriteBillboardStorageBypassDebugToggle
-        );
-        this.playerSpriteBillboardStorageBypassDebugToggleLabel.appendChild(document.createTextNode('No storage remap'));
-        this.wallTextureDewarpControl.appendChild(this.playerSpriteBillboardStorageBypassDebugToggleLabel);
         this.controlsElement.appendChild(this.wallTextureDewarpControl);
         this.updateWallTextureDewarpControl();
 
@@ -1622,6 +2356,18 @@ export class KnightLoreStage0Renderer {
 
         this.full3DObjectGroup = new THREE.Group();
         this.scene.add(this.full3DObjectGroup);
+
+        this.liveActorBillboardGroup = new THREE.Group();
+        this.liveActorBillboardGeometry = createVerticalRectangleLineGeometry(
+            PLAYER_SPRITE_BILLBOARD_HALF_SIZE.width,
+            PLAYER_SPRITE_BILLBOARD_HALF_SIZE.height
+        );
+        this.liveActorBillboardPlaneGeometry = createVerticalBillboardPlaneGeometry(
+            PLAYER_SPRITE_BILLBOARD_HALF_SIZE.width,
+            PLAYER_SPRITE_BILLBOARD_HALF_SIZE.height
+        );
+        this.liveActorBillboardMaterials = new Map();
+        this.scene.add(this.liveActorBillboardGroup);
 
         this.collectableItemGroup = new THREE.Group();
         this.collectableItemGeometry = new THREE.BoxGeometry(
@@ -1749,6 +2495,8 @@ export class KnightLoreStage0Renderer {
         );
         this.playerSpriteBillboardTextureMaterials = new Map();
         this.playerSpriteBillboardMirroredTextureMaterials = new Map();
+        this.actorSpriteBillboardTextureMaterials = new Map();
+        this.actorSpriteBillboardMirroredTextureMaterials = new Map();
         this.playerSpriteBillboardFallbackTextureMaterial = new THREE.MeshBasicMaterial({
             transparent: true,
             opacity: 0,
@@ -1883,6 +2631,7 @@ export class KnightLoreStage0Renderer {
         this.updateSpecialDynamicMarkers();
         this.updateObjectWireframes();
         this.updateFull3DObjectModels();
+        this.updateLiveActorBillboards();
         this.updateCollectableItemMarkers();
         this.updatePlayerProxy();
         this.updateSpellMovementProbe();
@@ -1916,12 +2665,14 @@ export class KnightLoreStage0Renderer {
             this.clearSpecialDynamicMarkers();
             this.clearObjectWireframes();
             this.clearFull3DObjectModels();
+            this.clearLiveActorBillboards();
             this.clearCollectableItemMarkers();
             this.lastStaticBackgroundSignature = '';
             this.lastRoomSignature = '';
             this.lastRoomColorAttribute = null;
             this.lastFull3DObjectCount = 0;
             this.lastFull3DRecognizedObjectCount = 0;
+            this.lastLiveActorBillboardCount = 0;
             this.lastTexturedBackgroundQuadCount = 0;
             this.lastDewarpedBackgroundQuadCount = 0;
             if (this.full3DBackgroundRenderer) this.full3DBackgroundRenderer.dispose();
@@ -1994,6 +2745,7 @@ export class KnightLoreStage0Renderer {
         if (this.specialDynamicGroup) this.specialDynamicGroup.visible = visible;
         if (this.objectWireframeGroup) this.objectWireframeGroup.visible = visible;
         if (this.full3DObjectGroup) this.full3DObjectGroup.visible = visible;
+        if (this.liveActorBillboardGroup) this.liveActorBillboardGroup.visible = visible;
         if (this.collectableItemGroup) this.collectableItemGroup.visible = visible;
         if (this.spellMarkerGroup) {
             this.spellMarkerGroup.visible = visible && (
@@ -2120,6 +2872,13 @@ export class KnightLoreStage0Renderer {
         }
     }
 
+    clearLiveActorBillboards() {
+        if (!this.liveActorBillboardGroup) return;
+        while (this.liveActorBillboardGroup.children.length > 0) {
+            this.liveActorBillboardGroup.remove(this.liveActorBillboardGroup.children[0]);
+        }
+    }
+
     clearCollectableItemMarkers() {
         while (this.collectableItemGroup.children.length > 0) {
             this.collectableItemGroup.remove(this.collectableItemGroup.children[0]);
@@ -2150,6 +2909,7 @@ export class KnightLoreStage0Renderer {
         const record = marker.record;
         const markerInfo = marker.markerInfo || specialMarkerForCategory(marker.category);
         if (!record || !markerInfo) return;
+        if (this.activeRenderMode === 'full-3d' && marker.category === 'wizard') return;
 
         const position = mapKnightLorePositionToScene(record.position, this.roomDimensions);
         if (!position) return;
@@ -2167,6 +2927,154 @@ export class KnightLoreStage0Renderer {
         mesh.userData.objectCategory = marker.category;
         mesh.userData.objectLabel = marker.label || markerInfo.label;
         this.specialDynamicGroup.add(mesh);
+    }
+
+    updateLiveActorBillboards() {
+        const scene = this.latestFrame && this.latestFrame.knightLoreScene
+            ? this.latestFrame.knightLoreScene
+            : null;
+        const room = scene ? scene.room : null;
+        if (this.activeRenderMode !== 'full-3d' || !room || !this.hasSeenGameplayRoom) {
+            this.lastLiveActorBillboardCount = 0;
+            this.lastLiveActorBillboardTextureCount = 0;
+            this.lastLiveActorBillboardWireframesVisible = false;
+            this.clearLiveActorBillboards();
+            return;
+        }
+
+        const facingScores = this.computePlayerSpriteBillboardFacingScores({camera: this.camera});
+        const selection = selectedSpriteBillboardFacingForView(this.activeViewPreset, facingScores);
+        if (!selection.selectedFacing) {
+            this.lastLiveActorBillboardCount = 0;
+            this.lastLiveActorBillboardTextureCount = 0;
+            this.lastLiveActorBillboardWireframesVisible = false;
+            this.clearLiveActorBillboards();
+            return;
+        }
+
+        const specs = liveActorBillboardSpecsForRoom(room);
+        this.clearLiveActorBillboards();
+        this.lastLiveActorBillboardCount = 0;
+        this.lastLiveActorBillboardTextureCount = 0;
+        this.lastLiveActorBillboardWireframesVisible = this.playerSpriteBillboardWireframeEnabled;
+        specs.forEach(spec => {
+            const actorBillboard = this.createLiveActorBillboard(spec, selection.selectedFacing);
+            if (!actorBillboard) return;
+            this.lastLiveActorBillboardCount += 1;
+            this.lastLiveActorBillboardTextureCount += actorBillboard.userData.texturedHalfCount || 0;
+            this.liveActorBillboardGroup.add(actorBillboard);
+        });
+    }
+
+    createLiveActorBillboard(spec, selectedFacing) {
+        if (!spec || !selectedFacing) return null;
+        const baseRecord = spec.lowerRecord || spec.topRecord;
+        if (!baseRecord) return null;
+        const basePosition = mapKnightLorePositionToScene(baseRecord.position, this.roomDimensions);
+        if (!basePosition) return null;
+
+        const actorGroup = new THREE.Group();
+        actorGroup.userData.actor = spec.actor;
+        actorGroup.userData.objectSlot = spec.objectSlot;
+        actorGroup.userData.lowerSlot = spec.lowerSlot;
+        actorGroup.userData.billboardFacing = selectedFacing;
+        actorGroup.userData.texturedHalfCount = 0;
+        const actorFacing = resolveLiveActorFacing(spec);
+        const relativeView = actorFacing.facing
+            ? relativePlayerView(actorFacing.facing, selectedFacing)
+            : 'unknown';
+        actorGroup.userData.actorFacing = actorFacing.facing;
+        actorGroup.userData.actorFacingSource = actorFacing.source;
+        actorGroup.userData.relativeView = relativeView;
+        const material = this.liveActorBillboardMaterialForActor(spec.actor);
+        const normal = this.billboardNormalForFacing(selectedFacing);
+        actorGroup.position.copy(basePosition.vector);
+        actorGroup.position.addScaledVector(normal, LIVE_ACTOR_BILLBOARD_DIRECTION_OFFSET);
+        actorGroup.rotation.y = rotationForFacing(selectedFacing);
+
+        const addHalf = (record, part, stackIndex) => {
+            if (!record) return;
+            const yPosition = PLAYER_SPRITE_BILLBOARD_HALF_SIZE.height * stackIndex;
+            // Stage 7.6 cardinal actor pass: keep display-plane selection and
+            // texture-side decisions separate. The canonical game view still
+            // uses the live sprite ids. Cardinal views use a stable side remap
+            // so a back-facing guard/wizard does not flicker between sprite
+            // families while the live game frames settle.
+            const textureSelection = resolveLiveActorTextureSelection({
+                spec,
+                record,
+                selectedFacing,
+                viewPreset: this.activeViewPreset,
+            });
+            const textureResult = this.actorSpriteBillboardTextureMaterialForSelection(
+                spec.actor,
+                textureSelection
+            );
+            const effectiveTextureSelection = textureResult.selection || textureSelection;
+            const textureMaterial = textureResult.material;
+            if (textureMaterial) {
+                const plane = new THREE.Mesh(
+                    this.liveActorBillboardPlaneGeometry,
+                    textureMaterial
+                );
+                // Line rectangles start at their bottom edge; billboard planes
+                // are centered. Match the player billboard placement so the
+                // lower actor half is not sunk below the actor baseline.
+                plane.position.y = yPosition + PLAYER_SPRITE_BILLBOARD_HALF_SIZE.height / 2;
+                plane.renderOrder = 11;
+                plane.userData.actor = spec.actor;
+                plane.userData.actorPart = part;
+                plane.userData.dynamicAddress = record.address;
+                plane.userData.spriteId = effectiveTextureSelection.textureSpriteId;
+                plane.userData.liveSpriteId = effectiveTextureSelection.liveSpriteId;
+                plane.userData.billboardFacing = selectedFacing;
+                plane.userData.actorFacing = effectiveTextureSelection.actorFacing.facing;
+                plane.userData.relativeView = effectiveTextureSelection.relativeView;
+                plane.userData.liveActorTexturePolicy = effectiveTextureSelection.policy;
+                plane.userData.actorTextureSide = effectiveTextureSelection.textureSide;
+                actorGroup.add(plane);
+                actorGroup.userData.texturedHalfCount += 1;
+            }
+
+            const frame = new THREE.LineSegments(
+                this.liveActorBillboardGeometry,
+                material
+            );
+            frame.position.y = yPosition;
+            frame.visible = this.playerSpriteBillboardWireframeEnabled;
+            frame.renderOrder = 12;
+            frame.userData.actor = spec.actor;
+            frame.userData.actorPart = part;
+            frame.userData.dynamicAddress = record.address;
+            frame.userData.spriteId = record.spriteId;
+            frame.userData.billboardFacing = selectedFacing;
+            actorGroup.add(frame);
+        };
+
+        addHalf(spec.lowerRecord, 'lower', 0);
+        addHalf(spec.topRecord, 'top', spec.lowerRecord ? 1 : 0);
+        return actorGroup.children.length > 0 ? actorGroup : null;
+    }
+
+    liveActorBillboardMaterialForActor(actor) {
+        const key = actor || 'unknown';
+        if (!this.liveActorBillboardMaterials.has(key)) {
+            this.liveActorBillboardMaterials.set(
+                key,
+                new THREE.LineBasicMaterial({
+                    color: LIVE_ACTOR_BILLBOARD_COLORS[key] || 0xf8fafc,
+                    transparent: true,
+                    opacity: 0.98,
+                    depthTest: true,
+                })
+            );
+        }
+        return this.liveActorBillboardMaterials.get(key);
+    }
+
+    billboardNormalForFacing(facing) {
+        const candidate = PLAYER_SPRITE_BILLBOARD_FACINGS.find(item => item.id === facing);
+        return candidate ? candidate.normal : new THREE.Vector3(0, 0, -1);
     }
 
     updateObjectWireframes() {
@@ -2288,7 +3196,13 @@ export class KnightLoreStage0Renderer {
             return;
         }
 
+        const recordsByObjectSlot = liveObjectRecordsByObjectSlotForRoom(room);
+        const actorBillboardAddresses = liveActorBillboardRecordAddressesForRoom(room);
         const candidates = dynamicObjectCandidatesForRoom(room)
+            .filter(record => (
+                !actorBillboardAddresses.has(record.address)
+                && !shouldRenderAsLiveActorBillboard(record, recordsByObjectSlot)
+            ))
             .slice(0, OBJECT_WIREFRAME_MAX_RECORDS);
         this.clearFull3DObjectModels();
         this.lastFull3DObjectCount = candidates.length;
@@ -2872,14 +3786,15 @@ export class KnightLoreStage0Renderer {
 
     updatePlayerSpriteBillboards(billboardInput) {
         this.playerSpriteBillboardHookCallCount += 1;
-        const viewPolicy = playerSpriteBillboardPolicyForViewPreset(
-            billboardInput.activeViewPreset
-        );
         const facingScores = this.computePlayerSpriteBillboardFacingScores(billboardInput);
-        const selectedFacing = viewPolicy.cameraSide
-            || (facingScores.signedBest ? facingScores.signedBest.id : null);
-        const textureReferenceSide = viewPolicy.textureReferenceSide || selectedFacing;
-        const selectedScore = facingScores.scores.find(score => score.id === selectedFacing) || null;
+        const selection = selectedSpriteBillboardFacingForView(
+            billboardInput.activeViewPreset,
+            facingScores
+        );
+        const viewPolicy = selection.viewPolicy;
+        const selectedFacing = selection.selectedFacing;
+        const textureReferenceSide = selection.textureReferenceSide;
+        const selectedScore = selection.selectedScore;
         const visible = billboardInput.activeRenderMode === 'full-3d' && Boolean(selectedFacing);
         const textureSelection = this.resolvePlayerSpriteBillboardTextureSelection(
             billboardInput,
@@ -3659,6 +4574,11 @@ export class KnightLoreStage0Renderer {
             'Full 3D object proxies: ' + this.lastFull3DRecognizedObjectCount
                 + '/' + this.lastFull3DObjectCount
                 + ' recognized',
+            'Full 3D live actor billboards: ' + this.lastLiveActorBillboardCount
+                + ', textured quads '
+                + this.lastLiveActorBillboardTextureCount
+                + ', wireframes '
+                + (this.lastLiveActorBillboardWireframesVisible ? 'visible' : 'hidden'),
             'Player proxy block XYZ: ' + [
                 PLAYER_PROXY_BLOCK_UNITS.x,
                 PLAYER_PROXY_BLOCK_UNITS.y,
@@ -3868,7 +4788,12 @@ export class KnightLoreStage0Renderer {
             ? comparison.staticRecordCount
             : 0;
         const objectCandidates = dynamicObjectCandidatesForRoom(room);
+        const focusedActorTable = this.renderFocusedActorSlotTable(focusedActorSlotRowsForRoom(room));
+        const focusedWizardByteWindowTable = this.renderFocusedWizardByteWindowTable();
         const objectTable = this.renderDynamicObjectCandidateTable(objectCandidates, backgroundPrefixCount);
+        const liveObjectTable = this.renderLiveObjectSlotTable(liveObjectRecordsForRoom(room));
+        const liveActorTable = this.renderLiveActorCandidateTable(liveActorCandidatesForRoom(room));
+        const liveActorPolicyTable = this.renderLiveActorBillboardPolicyTable(room);
         const collectableItems = room && room.collectableItems ? room.collectableItems : null;
         const resolvedItemRecords = room ? this.lastResolvedCollectableItemRecords : [];
         const itemTable = this.renderCollectableItemTable(
@@ -3878,17 +4803,25 @@ export class KnightLoreStage0Renderer {
         );
         const playerSpriteTable = this.renderPlayerSpriteIdentificationTable();
         const playerSpriteMemoryPileTable = this.renderPlayerSpriteMemoryPileTable();
+        const playerMaterialDebugPanel = this.renderPlayerSpriteBillboardMaterialDebugPanel();
         const playerBillboardTraceTable = this.renderPlayerBillboardTransitionTraceTable();
 
         if (!comparison || !staticLocation || staticLocation.error) {
             this.comparisonElement.innerHTML = [
                 '<p class="knight-lore-stage2-note is-warning">Background comparison unavailable.</p>',
+                focusedActorTable,
+                focusedWizardByteWindowTable,
+                liveObjectTable,
                 objectTable,
+                liveActorTable,
+                liveActorPolicyTable,
                 itemTable,
                 playerSpriteTable,
                 playerSpriteMemoryPileTable,
+                playerMaterialDebugPanel,
                 playerBillboardTraceTable,
             ].join('');
+            this.updatePlayerSpriteBillboardMaterialDebugCanvas();
             return;
         }
 
@@ -3910,6 +4843,8 @@ export class KnightLoreStage0Renderer {
                 + '</p>';
 
         this.comparisonElement.innerHTML = [
+            focusedActorTable,
+            focusedWizardByteWindowTable,
             '<div class="knight-lore-stage2-comparison-heading">',
             '<strong>Static background vs dynamic slots</strong>',
             '<span>'
@@ -3924,6 +4859,7 @@ export class KnightLoreStage0Renderer {
             '<th>Static source</th>',
             '<th>Static sprite | pos | dim | flags</th>',
             '<th>Dynamic sprite | pos | dim | flags</th>',
+            '<th>Dynamic slot tail</th>',
             '<th>Status</th>',
             '</tr></thead>',
             '<tbody>',
@@ -3937,17 +4873,23 @@ export class KnightLoreStage0Renderer {
                 '<td class="mono" title="' + escapeHtml(formatRecordAddress(row.dynamicRecord ? row.dynamicRecord.address : null)) + '">'
                     + escapeHtml(formatVisualRecord(row.dynamicRecord))
                     + '</td>' +
+                '<td class="mono">' + escapeHtml(formatDynamicRecordSlotTail(row.dynamicRecord)) + '</td>' +
                 '<td>' + escapeHtml(row.status + formatMismatchList(row.mismatches)) + '</td>' +
                 '</tr>'
             )).join(''),
             '</tbody>',
             '</table>',
+            liveObjectTable,
             objectTable,
+            liveActorTable,
+            liveActorPolicyTable,
             itemTable,
             playerSpriteTable,
             playerSpriteMemoryPileTable,
+            playerMaterialDebugPanel,
             playerBillboardTraceTable,
         ].join('');
+        this.updatePlayerSpriteBillboardMaterialDebugCanvas();
     }
 
     spriteTexturePreviewRows(spriteTextures) {
@@ -4049,24 +4991,170 @@ export class KnightLoreStage0Renderer {
         return texture;
     }
 
+    createSpriteBillboardTextureMaterial(spriteId, options = {}) {
+        const mirrorTextureX = Boolean(options.mirrorTextureX);
+        const validateSpriteId = typeof options.validateSpriteId === 'function'
+            ? options.validateSpriteId
+            : () => true;
+        const validateTexture = typeof options.validateTexture === 'function'
+            ? options.validateTexture
+            : texture => Boolean(texture && texture.valid);
+        const color = options.color === undefined || options.color === null
+            ? 0xffffff
+            : options.color;
+        const sourceCandidates = Array.isArray(options.sourceCandidates)
+            ? options.sourceCandidates
+            : [
+                ['frame', getKnightLoreSpriteTexture(this.latestFrame, spriteId)],
+                ['static', getKnightLoreSpriteTexture(this.staticMemory, spriteId)],
+            ];
+        const fail = diagnostic => ({
+            material: null,
+            diagnostic,
+            canvas: null,
+            texture: null,
+            sourceLabel: null,
+            sourceTexture: null,
+            verticalShiftPixels: 0,
+        });
+
+        if (!validateSpriteId(spriteId)) return fail('invalid-id');
+        const sourceRecord = sourceCandidates.find(([, texture]) => validateTexture(texture, spriteId));
+        if (!sourceRecord) {
+            const rejectedTexture = sourceCandidates
+                .map(([label, texture]) => ({label, texture}))
+                .find(candidate => candidate.texture && candidate.texture.valid);
+            if (rejectedTexture) {
+                return fail(
+                    'bad-dim-'
+                    + rejectedTexture.label
+                    + '-'
+                    + rejectedTexture.texture.widthPixels
+                    + 'x'
+                    + rejectedTexture.texture.heightPixels
+                );
+            }
+            return fail('no-source');
+        }
+        const [sourceLabel, sourceTexture] = sourceRecord;
+
+        const expanded = expandKnightLoreSpriteTexture(sourceTexture);
+        if (!expanded) return fail('no-expanded');
+
+        let alphaPlane = options.alphaPlane || 'image';
+        let alphaPixelCount = countExpandedSpritePlanePixels(expanded, alphaPlane);
+        if (
+            alphaPixelCount === 0
+            && options.alphaFallbackPlane
+            && options.alphaFallbackPlane !== alphaPlane
+        ) {
+            const fallbackPixelCount = countExpandedSpritePlanePixels(
+                expanded,
+                options.alphaFallbackPlane
+            );
+            if (fallbackPixelCount > 0) {
+                alphaPlane = options.alphaFallbackPlane;
+                alphaPixelCount = fallbackPixelCount;
+            }
+        }
+
+        const rawCanvas = this.createSpriteBillboardTextureCanvas(expanded, color, {
+            alphaPlane,
+            colourPlane: options.colourPlane || alphaPlane,
+        });
+        if (!rawCanvas) return fail('no-raw-canvas');
+
+        // This is the shared actor/player texture-buffer convention. The game
+        // sprite bytes are first expanded into a transparent colour canvas,
+        // then flipped into the orientation expected by our fixed billboard UVs.
+        // Higher-level actor code decides which sprite id and live mirror state
+        // to request; this helper only builds that requested material.
+        const yAdjustedCanvas = options.flipTextureY === false
+            ? rawCanvas
+            : this.createVerticallyFlippedCanvas(rawCanvas) || rawCanvas;
+        const xyAdjustedCanvas = options.flipTextureX === false
+            ? yAdjustedCanvas
+            : this.createHorizontallyFlippedCanvas(yAdjustedCanvas) || yAdjustedCanvas;
+        const requestedShift = typeof options.verticalShiftPixels === 'function'
+            ? options.verticalShiftPixels({
+                spriteId,
+                canvas: xyAdjustedCanvas,
+                sourceTexture,
+                expanded,
+            })
+            : options.verticalShiftPixels;
+        const verticalShiftPixels = Number.isFinite(requestedShift)
+            ? Math.max(0, Math.round(requestedShift))
+            : 0;
+        const shiftedCanvas = verticalShiftPixels > 0
+            ? this.createVerticallyShiftedCanvas(xyAdjustedCanvas, verticalShiftPixels)
+                || xyAdjustedCanvas
+            : xyAdjustedCanvas;
+        const canvas = mirrorTextureX
+            ? this.createHorizontallyFlippedCanvas(shiftedCanvas) || shiftedCanvas
+            : shiftedCanvas;
+        const texture = this.createCanvasTexture(canvas);
+        if (!texture) return fail('no-three-texture');
+        const diagnostic = 'ok-' + sourceLabel + '-' + canvas.width + 'x' + canvas.height
+            + '-alpha-' + alphaPlane + '-' + alphaPixelCount;
+
+        const material = new THREE.MeshBasicMaterial({
+            map: texture,
+            transparent: true,
+            alphaTest: 0.04,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+        });
+        material.userData.texture = texture;
+        material.userData.canvas = canvas;
+        material.userData.spriteId = spriteId;
+        material.userData.mirrorTextureX = mirrorTextureX;
+        material.userData.sourceLabel = sourceLabel;
+        material.userData.diagnostic = diagnostic;
+        material.userData.alphaPlane = alphaPlane;
+        material.userData.alphaPixelCount = alphaPixelCount;
+        material.userData.verticalShiftPixels = verticalShiftPixels;
+
+        return {
+            material,
+            diagnostic,
+            canvas,
+            texture,
+            sourceLabel,
+            sourceTexture,
+            alphaPlane,
+            alphaPixelCount,
+            verticalShiftPixels,
+        };
+    }
+
+    spriteBillboardTextureMaterialCacheForMirror(normalCache, mirroredCache, mirrorTextureX) {
+        return mirrorTextureX ? mirroredCache : normalCache;
+    }
+
+    spriteBillboardCachedTextureMaterialForSprite(spriteId, options = {}) {
+        const mirrorTextureX = Boolean(options.mirrorTextureX);
+        const cache = this.spriteBillboardTextureMaterialCacheForMirror(
+            options.normalCache,
+            options.mirroredCache,
+            mirrorTextureX
+        );
+        if (!cache || typeof options.createMaterial !== 'function') return null;
+
+        const cached = cache.get(spriteId);
+        if (cached) return cached;
+
+        const material = options.createMaterial(spriteId, {mirrorTextureX});
+        if (material) cache.set(spriteId, material);
+        return material || null;
+    }
+
     rebuildPlayerSpriteBillboardTextureMaterials() {
         if (!this.staticMemory || typeof document === 'undefined') return;
 
         PLAYER_SPRITE_MEMORY_VALUES.forEach(spriteId => {
-            if (!this.playerSpriteBillboardTextureMaterials.has(spriteId)) {
-                const material = this.createPlayerSpriteBillboardTextureMaterial(spriteId);
-                if (material) {
-                    this.playerSpriteBillboardTextureMaterials.set(spriteId, material);
-                }
-            }
-            if (!this.playerSpriteBillboardMirroredTextureMaterials.has(spriteId)) {
-                const mirroredMaterial = this.createPlayerSpriteBillboardTextureMaterial(spriteId, {
-                    mirrorTextureX: true,
-                });
-                if (mirroredMaterial) {
-                    this.playerSpriteBillboardMirroredTextureMaterials.set(spriteId, mirroredMaterial);
-                }
-            }
+            this.playerSpriteBillboardTextureMaterialForSprite(spriteId, false);
+            this.playerSpriteBillboardTextureMaterialForSprite(spriteId, true);
         });
     }
 
@@ -4091,97 +5179,193 @@ export class KnightLoreStage0Renderer {
 
     playerSpriteBillboardTextureMaterialForSprite(spriteId, mirrorTextureX = false) {
         if (!this.isPlayerSpriteBillboardTextureSpriteId(spriteId)) return null;
-        if (!mirrorTextureX) {
-            const cached = this.playerSpriteBillboardTextureMaterials.get(spriteId);
-            if (cached) return cached;
-            const material = this.createPlayerSpriteBillboardTextureMaterial(spriteId);
-            if (material) {
-                this.playerSpriteBillboardTextureMaterials.set(spriteId, material);
-            }
-            return material || null;
-        }
-        const cached = this.playerSpriteBillboardMirroredTextureMaterials.get(spriteId);
-        if (cached) return cached;
-        const material = this.createPlayerSpriteBillboardTextureMaterial(spriteId, {
-            mirrorTextureX: true,
+        return this.spriteBillboardCachedTextureMaterialForSprite(spriteId, {
+            mirrorTextureX,
+            normalCache: this.playerSpriteBillboardTextureMaterials,
+            mirroredCache: this.playerSpriteBillboardMirroredTextureMaterials,
+            createMaterial: (candidate, materialOptions) => (
+                this.createPlayerSpriteBillboardTextureMaterial(candidate, materialOptions)
+            ),
         });
-        if (material) {
-            this.playerSpriteBillboardMirroredTextureMaterials.set(spriteId, material);
-        }
-        return material;
     }
 
     createPlayerSpriteBillboardTextureMaterial(spriteId, options = {}) {
         const mirrorTextureX = Boolean(options.mirrorTextureX);
-        const fail = diagnostic => {
-            this.setPlayerSpriteBillboardMaterialDiagnostic(spriteId, mirrorTextureX, diagnostic);
-            return null;
-        };
-        if (!this.isPlayerSpriteBillboardTextureSpriteId(spriteId)) return fail('invalid-id');
-        const sourceCandidates = [
-            ['frame', getKnightLoreSpriteTexture(this.latestFrame, spriteId)],
-            ['static', getKnightLoreSpriteTexture(this.staticMemory, spriteId)],
-        ];
-        const sourceRecord = sourceCandidates.find(([, texture]) => (
-            this.isUsablePlayerSpriteBillboardSourceTexture(spriteId, texture)
-        ));
-        if (!sourceRecord) {
-            const rejectedTexture = sourceCandidates
-                .map(([label, texture]) => ({label, texture}))
-                .find(candidate => candidate.texture && candidate.texture.valid);
-            if (rejectedTexture) {
-                return fail(
-                    'bad-dim-'
-                    + rejectedTexture.label
-                    + '-'
-                    + rejectedTexture.texture.widthPixels
-                    + 'x'
-                    + rejectedTexture.texture.heightPixels
-                );
-            }
-            return fail('no-source');
-        }
-        const [sourceLabel, sourceTexture] = sourceRecord;
-
-        const expanded = expandKnightLoreSpriteTexture(sourceTexture);
-        if (!expanded) return fail('no-expanded');
-
-        const rawCanvas = this.createPlayerSpriteBillboardCanvas(
-            expanded,
-            this.playerSpriteBillboardColorForSpriteId(spriteId)
-        );
-        if (!rawCanvas) return fail('no-raw-canvas');
-        const verticalFlippedCanvas = this.createVerticallyFlippedCanvas(rawCanvas) || rawCanvas;
-        const flippedCanvas = this.createHorizontallyFlippedCanvas(verticalFlippedCanvas)
-            || verticalFlippedCanvas;
-        const bodyTextureYOffset = this.isPlayerBodySpriteId(spriteId)
-            ? Math.max(1, Math.round(flippedCanvas.height * PLAYER_BODY_TEXTURE_VERTICAL_SHIFT_RATIO))
-            : 0;
-        const shiftedCanvas = bodyTextureYOffset > 0
-            ? this.createVerticallyShiftedCanvas(flippedCanvas, bodyTextureYOffset) || flippedCanvas
-            : flippedCanvas;
-        const canvas = mirrorTextureX
-            ? this.createHorizontallyFlippedCanvas(shiftedCanvas) || shiftedCanvas
-            : shiftedCanvas;
-        const texture = this.createCanvasTexture(canvas);
-        if (!texture) return fail('no-three-texture');
-
-        const material = new THREE.MeshBasicMaterial({
-            map: texture,
-            transparent: true,
-            alphaTest: 0.04,
-            side: THREE.DoubleSide,
-            depthWrite: false,
+        const result = this.createSpriteBillboardTextureMaterial(spriteId, {
+            mirrorTextureX,
+            color: this.playerSpriteBillboardColorForSpriteId(spriteId),
+            validateSpriteId: candidate => this.isPlayerSpriteBillboardTextureSpriteId(candidate),
+            validateTexture: texture => this.isUsablePlayerSpriteBillboardSourceTexture(
+                spriteId,
+                texture
+            ),
+            verticalShiftPixels: ({canvas}) => (
+                this.isPlayerBodySpriteId(spriteId)
+                    ? Math.max(
+                        1,
+                        Math.round(canvas.height * PLAYER_BODY_TEXTURE_VERTICAL_SHIFT_RATIO)
+                    )
+                    : 0
+            ),
         });
-        material.userData.texture = texture;
-        material.userData.bodyTextureYOffset = bodyTextureYOffset;
-        material.userData.mirrorTextureX = mirrorTextureX;
         this.setPlayerSpriteBillboardMaterialDiagnostic(
             spriteId,
             mirrorTextureX,
-            'ok-' + sourceLabel + '-' + canvas.width + 'x' + canvas.height
+            result.diagnostic
         );
-        return material;
+        if (result.material) {
+            result.material.userData.bodyTextureYOffset = result.verticalShiftPixels;
+        }
+        return result.material;
+    }
+
+    actorSpriteBillboardMaterialDiagnosticKey(actor, spriteId, mirrorTextureX = false) {
+        return [
+            actor || 'unknown',
+            mirrorTextureX ? 'mirror' : 'normal',
+            formatHex(spriteId, 2),
+        ].join(':');
+    }
+
+    setActorSpriteBillboardMaterialDiagnostic(actor, spriteId, mirrorTextureX, diagnostic) {
+        if (!this.actorSpriteBillboardMaterialDiagnostics) return;
+        this.actorSpriteBillboardMaterialDiagnostics.set(
+            this.actorSpriteBillboardMaterialDiagnosticKey(actor, spriteId, mirrorTextureX),
+            diagnostic
+        );
+    }
+
+    actorSpriteBillboardMaterialDiagnosticForSprite(actor, spriteId, mirrorTextureX = false) {
+        if (!this.actorSpriteBillboardMaterialDiagnostics) return '--';
+        return this.actorSpriteBillboardMaterialDiagnostics.get(
+            this.actorSpriteBillboardMaterialDiagnosticKey(actor, spriteId, mirrorTextureX)
+        ) || 'not-built';
+    }
+
+    actorSpriteBillboardTextureCacheForActor(actor, mirrorTextureX = false) {
+        const rootCache = mirrorTextureX
+            ? this.actorSpriteBillboardMirroredTextureMaterials
+            : this.actorSpriteBillboardTextureMaterials;
+        if (!rootCache) return null;
+
+        const actorKey = actor || 'unknown';
+        if (!rootCache.has(actorKey)) rootCache.set(actorKey, new Map());
+        return rootCache.get(actorKey);
+    }
+
+    actorSpriteBillboardTextureMaterialForSprite(actor, spriteId, mirrorTextureX = false) {
+        if (!this.isActorSpriteBillboardTextureSpriteId(actor, spriteId)) return null;
+        return this.spriteBillboardCachedTextureMaterialForSprite(spriteId, {
+            mirrorTextureX,
+            normalCache: this.actorSpriteBillboardTextureCacheForActor(actor, false),
+            mirroredCache: this.actorSpriteBillboardTextureCacheForActor(actor, true),
+            createMaterial: (candidate, materialOptions) => (
+                this.createActorSpriteBillboardTextureMaterial(actor, candidate, materialOptions)
+            ),
+        });
+    }
+
+    isVisibleSpriteBillboardTextureMaterial(material) {
+        if (!material || !material.userData || !material.userData.canvas) return false;
+        if (Number.isFinite(material.userData.alphaPixelCount)) {
+            return material.userData.alphaPixelCount > 0;
+        }
+        return true;
+    }
+
+    actorSpriteBillboardTextureMaterialForSelection(actor, textureSelection) {
+        if (!textureSelection || !textureSelection.textureEnabled) {
+            return {
+                material: null,
+                selection: textureSelection,
+            };
+        }
+
+        const actorKey = actor || 'unknown';
+        const candidates = [];
+        const addCandidate = (spriteId, textureSide, policy) => {
+            if (!Number.isFinite(spriteId)) return;
+            if (candidates.some(candidate => candidate.textureSpriteId === spriteId)) return;
+            candidates.push({
+                ...textureSelection,
+                textureSpriteId: spriteId,
+                textureSide: textureSide || textureSelection.textureSide,
+                policy,
+            });
+        };
+
+        addCandidate(
+            textureSelection.textureSpriteId,
+            textureSelection.textureSide,
+            textureSelection.policy
+        );
+
+        if (textureSelection.allowSideFallback) {
+            const oppositeSide = liveActorOppositeTextureSide(textureSelection.textureSide);
+            addCandidate(
+                liveActorSpriteIdForTextureSide(textureSelection.liveSpriteId, oppositeSide),
+                oppositeSide,
+                textureSelection.policy + '-opposite-fallback'
+            );
+            addCandidate(
+                textureSelection.liveSpriteId,
+                liveActorSpriteVisualSide(textureSelection.liveSpriteId),
+                textureSelection.policy + '-live-fallback'
+            );
+        }
+
+        let firstBuilt = null;
+        for (const candidate of candidates) {
+            const material = this.actorSpriteBillboardTextureMaterialForSprite(
+                actorKey,
+                candidate.textureSpriteId,
+                candidate.mirrorTextureX
+            );
+            const result = {material, selection: candidate};
+            if (!firstBuilt) firstBuilt = result;
+            if (this.isVisibleSpriteBillboardTextureMaterial(material)) {
+                return result;
+            }
+        }
+
+        return firstBuilt || {
+            material: null,
+            selection: textureSelection,
+        };
+    }
+
+    createActorSpriteBillboardTextureMaterial(actor, spriteId, options = {}) {
+        const mirrorTextureX = Boolean(options.mirrorTextureX);
+        const actorKey = actor || 'unknown';
+        const result = this.createSpriteBillboardTextureMaterial(spriteId, {
+            mirrorTextureX,
+            color: LIVE_ACTOR_BILLBOARD_COLORS[actorKey] || 0xf8fafc,
+            // Actor sprites are not built eagerly at snapshot load like the
+            // player cache, so prefer the preserved static capture. The live
+            // frame remains a fallback for diagnostics, not the primary source.
+            sourceCandidates: [
+                ['static', getKnightLoreSpriteTexture(this.staticMemory, spriteId)],
+                ['frame', getKnightLoreSpriteTexture(this.latestFrame, spriteId)],
+            ],
+            validateSpriteId: candidate => this.isActorSpriteBillboardTextureSpriteId(actorKey, candidate),
+            validateTexture: texture => this.isUsableActorSpriteBillboardSourceTexture(
+                actorKey,
+                spriteId,
+                texture
+            ),
+            alphaPlane: 'image',
+            alphaFallbackPlane: 'mask',
+        });
+        this.setActorSpriteBillboardMaterialDiagnostic(
+            actorKey,
+            spriteId,
+            mirrorTextureX,
+            result.diagnostic
+        );
+        if (result.material) {
+            result.material.userData.actor = actorKey;
+        }
+        return result.material;
     }
 
     isUsablePlayerSpriteBillboardSourceTexture(spriteId, texture) {
@@ -4201,7 +5385,30 @@ export class KnightLoreStage0Renderer {
         );
     }
 
-    createPlayerSpriteBillboardCanvas(expanded, color) {
+    isActorSpriteBillboardTextureSpriteId(actor, spriteId) {
+        const classification = classifyLiveActorSpriteId(spriteId);
+        if (!classification) return false;
+        if (classification.actor === 'guard/wizard') {
+            return actor === 'guard' || actor === 'wizard';
+        }
+        return classification.actor === actor;
+    }
+
+    isUsableActorSpriteBillboardSourceTexture(actor, spriteId, texture) {
+        if (!texture || !texture.valid) return false;
+        if (!this.isActorSpriteBillboardTextureSpriteId(actor, spriteId)) return false;
+
+        return (
+            Number.isFinite(texture.widthPixels)
+            && Number.isFinite(texture.heightPixels)
+            && texture.widthPixels > 0
+            && texture.widthPixels <= 64
+            && texture.heightPixels >= 8
+            && texture.heightPixels <= 64
+        );
+    }
+
+    createSpriteBillboardTextureCanvas(expanded, color, options = {}) {
         if (!expanded || typeof document === 'undefined') return null;
         const canvas = document.createElement('canvas');
         canvas.width = expanded.widthPixels;
@@ -4212,12 +5419,15 @@ export class KnightLoreStage0Renderer {
 
         const imageData = context.createImageData(canvas.width, canvas.height);
         const rgb = rgbFromHexColor(color);
+        const alphaPixels = options.alphaPlane === 'mask'
+            ? expanded.maskPixels
+            : expanded.imagePixels;
 
         for (let y = 0; y < expanded.heightPixels; y++) {
             for (let x = 0; x < expanded.widthPixels; x++) {
                 const sourceIndex = y * expanded.widthPixels + x;
                 const pixelIndex = (y * expanded.widthPixels + x) * 4;
-                const visible = expanded.imagePixels[sourceIndex];
+                const visible = alphaPixels[sourceIndex];
                 imageData.data[pixelIndex] = rgb.r;
                 imageData.data[pixelIndex + 1] = rgb.g;
                 imageData.data[pixelIndex + 2] = rgb.b;
@@ -4282,26 +5492,35 @@ export class KnightLoreStage0Renderer {
         return PLAYER_SPRITE_BILLBOARD_TEXTURE_COLORS[state || 'unknown'];
     }
 
+    disposeSpriteBillboardTextureMaterialMap(materialMap) {
+        if (!materialMap) return;
+        materialMap.forEach(entry => {
+            if (entry instanceof Map) {
+                this.disposeSpriteBillboardTextureMaterialMap(entry);
+                return;
+            }
+            if (entry && entry.userData && entry.userData.texture) {
+                entry.userData.texture.dispose();
+            }
+            if (entry && typeof entry.dispose === 'function') entry.dispose();
+        });
+        materialMap.clear();
+    }
+
     clearPlayerSpriteBillboardTextureMaterials() {
         if (!this.playerSpriteBillboardTextureMaterials) return;
-        this.playerSpriteBillboardTextureMaterials.forEach(material => {
-            if (material.userData && material.userData.texture) {
-                material.userData.texture.dispose();
-            }
-            material.dispose();
-        });
-        this.playerSpriteBillboardTextureMaterials.clear();
-        if (this.playerSpriteBillboardMirroredTextureMaterials) {
-            this.playerSpriteBillboardMirroredTextureMaterials.forEach(material => {
-                if (material.userData && material.userData.texture) {
-                    material.userData.texture.dispose();
-                }
-                material.dispose();
-            });
-            this.playerSpriteBillboardMirroredTextureMaterials.clear();
-        }
+        this.disposeSpriteBillboardTextureMaterialMap(this.playerSpriteBillboardTextureMaterials);
+        this.disposeSpriteBillboardTextureMaterialMap(this.playerSpriteBillboardMirroredTextureMaterials);
         if (this.playerSpriteBillboardMaterialDiagnostics) {
             this.playerSpriteBillboardMaterialDiagnostics.clear();
+        }
+    }
+
+    clearActorSpriteBillboardTextureMaterials() {
+        this.disposeSpriteBillboardTextureMaterialMap(this.actorSpriteBillboardTextureMaterials);
+        this.disposeSpriteBillboardTextureMaterialMap(this.actorSpriteBillboardMirroredTextureMaterials);
+        if (this.actorSpriteBillboardMaterialDiagnostics) {
+            this.actorSpriteBillboardMaterialDiagnostics.clear();
         }
     }
 
@@ -4315,9 +5534,7 @@ export class KnightLoreStage0Renderer {
             texture.id,
             colourAttribute === null || colourAttribute === undefined ? '--' : colourAttribute,
             textureSummary.yFlipped ? 'flip-y' : 'normal-y',
-            this.wallTextureBinaryThreshold > 0
-                ? 'binary-' + this.wallTextureBinaryThreshold
-                : 'continuous',
+            'actor-buffer-xy',
             texture.dataAddress,
             texture.dataEndAddress,
             texture.widthPixels,
@@ -4332,42 +5549,47 @@ export class KnightLoreStage0Renderer {
         const expanded = expandKnightLoreSpriteTexture(texture);
         if (!expanded) return null;
 
-        const imageCanvas = this.createSpriteBitplaneCanvas(
+        const rawImageCanvas = this.createSpriteBitplaneCanvas(
             expanded,
             colourAttribute,
             'image',
-            textureSummary.yFlipped
+            false
         );
         const maskCanvas = this.createSpriteBitplaneCanvas(
             expanded,
             colourAttribute,
             'mask',
-            textureSummary.yFlipped
+            false
         );
-        if (!imageCanvas || !maskCanvas) return null;
-        const correctedImageCanvas = createIsometricSlopeCorrectedCanvas(imageCanvas, {
-            slope: isometricTextureShearSlopeForSpriteId(textureSummary.id),
-        });
-        const binaryCorrectedImageCanvas = this.wallTextureBinaryThreshold > 0
-            ? createBinaryWallTextureCanvas(
-                correctedImageCanvas || imageCanvas,
-                rgbFromHexColor(spectrumInkColorFromAttribute(colourAttribute)),
-                this.wallTextureBinaryThreshold
-            )
-            : null;
+        const rawTextureBufferCanvas = this.createSpriteBillboardTextureCanvas(
+            expanded,
+            spectrumInkColorFromAttribute(colourAttribute)
+        );
+        if (!rawImageCanvas || !maskCanvas || !rawTextureBufferCanvas) return null;
+
+        // Stage 7.1 actor previews deliberately use the same buffer orientation
+        // as the proven main-character billboard textures: source pixels are
+        // vertically flipped for the canvas/texture convention, then horizontally
+        // flipped to match the current billboard UV layout. Per-actor live mirror
+        // flags are intentionally not applied in this inventory pass.
+        const yAdjustedTextureBufferCanvas = textureSummary.yFlipped
+            ? this.createVerticallyFlippedCanvas(rawTextureBufferCanvas) || rawTextureBufferCanvas
+            : rawTextureBufferCanvas;
+        const textureBufferCanvas = this.createHorizontallyFlippedCanvas(yAdjustedTextureBufferCanvas)
+            || yAdjustedTextureBufferCanvas;
 
         const record = {
             key: cacheKey,
             summary: textureSummary,
             texture,
             expanded,
-            imageCanvas,
+            imageCanvas: textureBufferCanvas,
+            rawImageCanvas,
             maskCanvas,
-            correctedImageCanvas: binaryCorrectedImageCanvas || correctedImageCanvas,
-            correctedImageThresholded: Boolean(binaryCorrectedImageCanvas),
+            textureBufferCanvas,
             yFlipped: Boolean(textureSummary.yFlipped),
             groupLabel: textureSummary.groupLabel || '',
-            imageTexture: this.createCanvasTexture(imageCanvas),
+            imageTexture: this.createCanvasTexture(textureBufferCanvas),
             maskTexture: this.createCanvasTexture(maskCanvas),
         };
         this.spriteTexturePreviewCache.set(cacheKey, record);
@@ -4406,6 +5628,271 @@ export class KnightLoreStage0Renderer {
         context.drawImage(sourceCanvas, x, y, width, height);
     }
 
+    playerSpriteBillboardMaterialDebugRows() {
+        const info = this.playerSpriteBillboardHookInfo;
+        const rows = [];
+
+        if (info && info.textureFullSprite !== null && info.textureFullSprite !== undefined) {
+            rows.push(
+                this.playerSpriteBillboardMaterialDebugRow({
+                    part: 'full',
+                    requestedSprite: info.textureFullSprite,
+                    materialSprite: info.textureBodyMaterialSprite,
+                    mirrorTextureX: info.bodyMirrorTextureX,
+                    ready: info.textureFullReady,
+                    diagnostic: info.textureBodyMaterialDiagnostic,
+                    verticalShiftPixels: 0,
+                    meta: 'player transformation',
+                })
+            );
+        } else if (info) {
+            rows.push(
+                this.playerSpriteBillboardMaterialDebugRow({
+                    part: 'body',
+                    requestedSprite: info.textureBodySprite,
+                    materialSprite: info.textureBodyMaterialSprite,
+                    mirrorTextureX: info.bodyMirrorTextureX,
+                    ready: info.textureBodyReady,
+                    diagnostic: info.textureBodyMaterialDiagnostic,
+                    verticalShiftPixels: info.bodyTextureYOffset,
+                    meta: 'player',
+                }),
+                this.playerSpriteBillboardMaterialDebugRow({
+                    part: 'head',
+                    requestedSprite: info.textureHeadSprite,
+                    materialSprite: info.textureHeadMaterialSprite,
+                    mirrorTextureX: info.headMirrorTextureX,
+                    ready: info.textureHeadReady,
+                    diagnostic: info.textureHeadMaterialDiagnostic,
+                    verticalShiftPixels: 0,
+                    meta: 'player',
+                })
+            );
+        }
+
+        const scene = this.latestFrame && this.latestFrame.knightLoreScene
+            ? this.latestFrame.knightLoreScene
+            : null;
+        const room = scene ? scene.room : null;
+        const liveActorSelection = this.currentLiveActorBillboardSelection();
+        const selectedFacing = liveActorSelection.selectedFacing || null;
+        liveActorBillboardSpecsForRoom(room).forEach((spec, specIndex) => {
+            if (spec.lowerRecord) {
+                rows.push(this.actorSpriteBillboardMaterialDebugRow(
+                    spec,
+                    spec.lowerRecord,
+                    'lower',
+                    specIndex,
+                    selectedFacing
+                ));
+            }
+            if (spec.topRecord) {
+                rows.push(this.actorSpriteBillboardMaterialDebugRow(
+                    spec,
+                    spec.topRecord,
+                    'top',
+                    specIndex,
+                    selectedFacing
+                ));
+            }
+        });
+
+        return rows.slice(0, PLAYER_MATERIAL_DEBUG_MAX_ROWS);
+    }
+
+    playerSpriteBillboardMaterialDebugRow({
+        part,
+        requestedSprite,
+        materialSprite,
+        mirrorTextureX = false,
+        ready = false,
+        diagnostic = '--',
+        verticalShiftPixels = 0,
+        meta = '',
+    }) {
+        const material = Number.isFinite(materialSprite)
+            ? this.playerSpriteBillboardTextureMaterialForSprite(materialSprite, mirrorTextureX)
+            : null;
+        const canvas = material && material.userData ? material.userData.canvas : null;
+
+        return {
+            part,
+            requestedSprite,
+            materialSprite,
+            mirrorTextureX: Boolean(mirrorTextureX),
+            ready: Boolean(ready && canvas),
+            diagnostic: diagnostic || (material && material.userData ? material.userData.diagnostic : '--'),
+            verticalShiftPixels,
+            meta,
+            canvas,
+        };
+    }
+
+    actorSpriteBillboardMaterialDebugRow(spec, record, part, specIndex, selectedFacing) {
+        const actor = spec && spec.actor ? spec.actor : 'unknown';
+        const textureSelection = resolveLiveActorTextureSelection({
+            spec,
+            record,
+            selectedFacing,
+            viewPreset: this.activeViewPreset,
+        });
+        const textureResult = this.actorSpriteBillboardTextureMaterialForSelection(
+            actor,
+            textureSelection
+        );
+        const effectiveTextureSelection = textureResult.selection || textureSelection;
+        const material = textureResult.material;
+        const canvas = material && material.userData ? material.userData.canvas : null;
+        const objectSlot = objectTableSlotIndexForAddress(record ? record.address : null);
+        return {
+            part: actor + ' ' + part,
+            requestedSprite: effectiveTextureSelection.liveSpriteId,
+            materialSprite: effectiveTextureSelection.textureSpriteId,
+            mirrorTextureX: effectiveTextureSelection.mirrorTextureX,
+            ready: this.isVisibleSpriteBillboardTextureMaterial(material),
+            diagnostic: this.actorSpriteBillboardMaterialDiagnosticForSprite(
+                actor,
+                effectiveTextureSelection.textureSpriteId,
+                effectiveTextureSelection.mirrorTextureX
+            ),
+            verticalShiftPixels: 0,
+            meta: 'actor#' + specIndex
+                + ' obj '
+                + (objectSlot === null ? '--' : objectSlot)
+                + ' +7 '
+                + formatHex(effectiveTextureSelection.flags.raw, 2)
+                + (effectiveTextureSelection.flags.hflip ? ' hflip applied' : '')
+                + ' '
+                + effectiveTextureSelection.relativeView
+                + '/'
+                + effectiveTextureSelection.textureSide
+                + '/'
+                + effectiveTextureSelection.policy
+                + ' swap:'
+                + (effectiveTextureSelection.policySwapTextureSide ? 'Y' : 'n')
+                + ' hmir:'
+                + (effectiveTextureSelection.policyFacingMirrorTextureX ? 'Y' : 'n'),
+            canvas,
+        };
+    }
+
+    renderPlayerSpriteBillboardMaterialDebugPanel() {
+        return [
+            '<div class="knight-lore-stage2-comparison-heading is-secondary">',
+            '<strong>Sprite material helper preview</strong>',
+            '<span>Actual cached player and live guard/wizard material output; quick Stage 7.2 flip/mirror check.</span>',
+            '</div>',
+            '<canvas class="knight-lore-player-material-helper-preview" width="'
+                + PLAYER_MATERIAL_DEBUG_CANVAS_WIDTH
+                + '" height="'
+                + (28 + PLAYER_MATERIAL_DEBUG_ROW_HEIGHT * PLAYER_MATERIAL_DEBUG_MAX_ROWS)
+                + '" aria-label="Current sprite material helper output preview"></canvas>',
+        ].join('');
+    }
+
+    drawMaterialDebugCheckerboard(context, x, y, width, height) {
+        const squareSize = 6;
+        for (let yy = 0; yy < height; yy += squareSize) {
+            for (let xx = 0; xx < width; xx += squareSize) {
+                const light = ((Math.floor(xx / squareSize) + Math.floor(yy / squareSize)) % 2) === 0;
+                context.fillStyle = light ? '#475569' : '#1E293B';
+                context.fillRect(x + xx, y + yy, squareSize, squareSize);
+            }
+        }
+    }
+
+    updatePlayerSpriteBillboardMaterialDebugCanvas() {
+        const canvas = this.comparisonElement
+            ? this.comparisonElement.querySelector('.knight-lore-player-material-helper-preview')
+            : null;
+        if (!canvas) return;
+
+        const rows = this.playerSpriteBillboardMaterialDebugRows();
+        const visibleRows = rows.slice(0, PLAYER_MATERIAL_DEBUG_MAX_ROWS);
+        canvas.width = PLAYER_MATERIAL_DEBUG_CANVAS_WIDTH;
+        canvas.height = 28 + PLAYER_MATERIAL_DEBUG_ROW_HEIGHT * Math.max(2, visibleRows.length);
+        const context = canvas.getContext('2d');
+        if (!context) return;
+
+        context.fillStyle = '#0F172A';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.font = '11px Menlo, Consolas, monospace';
+        context.textBaseline = 'top';
+        context.fillStyle = '#CBD5E1';
+        context.fillText(
+            'part  request -> material  mirror  shift  diagnostic',
+            12,
+            9
+        );
+
+        for (let index = 0; index < Math.max(2, visibleRows.length); index++) {
+            const row = visibleRows[index] || null;
+            const y = 28 + index * PLAYER_MATERIAL_DEBUG_ROW_HEIGHT;
+            context.fillStyle = index % 2 === 0 ? '#1E293B' : '#172033';
+            context.fillRect(0, y, canvas.width, PLAYER_MATERIAL_DEBUG_ROW_HEIGHT - 2);
+
+            if (!row) {
+                context.fillStyle = '#64748B';
+                context.fillText('--', 12, y + 10);
+                continue;
+            }
+
+            const sourceCanvas = row.canvas;
+            const previewX = 478;
+            const previewY = y + 8;
+            const previewW = PLAYER_MATERIAL_DEBUG_PREVIEW_MAX_WIDTH;
+            const previewH = PLAYER_MATERIAL_DEBUG_PREVIEW_MAX_HEIGHT;
+            this.drawMaterialDebugCheckerboard(context, previewX, previewY, previewW, previewH);
+            context.strokeStyle = row.ready ? '#22C55E' : '#EF4444';
+            context.strokeRect(previewX + 0.5, previewY + 0.5, previewW, previewH);
+
+            if (sourceCanvas) {
+                const scale = Math.min(
+                    previewW / sourceCanvas.width,
+                    previewH / sourceCanvas.height
+                );
+                const width = Math.max(1, Math.round(sourceCanvas.width * scale));
+                const height = Math.max(1, Math.round(sourceCanvas.height * scale));
+                const imageX = previewX + Math.floor((previewW - width) / 2);
+                const imageY = previewY + Math.floor((previewH - height) / 2);
+                context.imageSmoothingEnabled = false;
+                context.drawImage(sourceCanvas, imageX, imageY, width, height);
+            } else {
+                context.fillStyle = '#FCA5A5';
+                context.fillText('missing', previewX + 14, previewY + 26);
+            }
+
+            context.fillStyle = row.ready ? '#BBF7D0' : '#FCA5A5';
+            context.fillText(
+                row.part
+                    + '  '
+                    + formatHex(row.requestedSprite, 2)
+                    + ' -> '
+                    + formatHex(row.materialSprite, 2)
+                    + '  '
+                    + (row.mirrorTextureX ? 'mirror' : 'normal')
+                    + '  +'
+                    + (Number.isFinite(row.verticalShiftPixels) ? row.verticalShiftPixels : 0)
+                    + 'px',
+                12,
+                y + 10
+            );
+            context.fillStyle = '#CBD5E1';
+            context.fillText(
+                row.diagnostic || '--',
+                12,
+                y + 30
+            );
+            context.fillStyle = '#94A3B8';
+            context.fillText(
+                (sourceCanvas ? (sourceCanvas.width + 'x' + sourceCanvas.height) : '--')
+                    + (row.meta ? '  ' + row.meta : ''),
+                12,
+                y + 50
+            );
+        }
+    }
+
     updateSpriteTexturePreviewCanvas(spriteTextures, colourAttribute) {
         const canvas = this.comparisonElement
             ? this.comparisonElement.querySelector('.knight-lore-sprite-texture-preview')
@@ -4431,7 +5918,7 @@ export class KnightLoreStage0Renderer {
             context.fillRect(0, 0, canvas.width, canvas.height);
             context.fillStyle = '#CBD5E1';
             context.font = '12px Menlo, Consolas, monospace';
-            context.fillText('No valid current-room sprite textures to preview.', 12, 28);
+            context.fillText('No valid focused actor sprite textures to preview.', 12, 28);
             return;
         }
 
@@ -4488,26 +5975,32 @@ export class KnightLoreStage0Renderer {
                 y + 21
             );
             context.fillText(
-                record.groupLabel + (record.yFlipped ? '  flip Y' : ''),
+                record.groupLabel + (record.yFlipped ? '  actor buffer X+Y' : '  actor buffer X'),
                 x + 8,
                 y + 34
             );
 
             const imageY = y + SPRITE_TEXTURE_PREVIEW_LABEL_HEIGHT + 30;
-            this.drawSpritePreviewImage(context, record.imageCanvas, x + 8, imageY, 'raw colour');
             this.drawSpritePreviewImage(
                 context,
-                record.correctedImageCanvas || record.imageCanvas,
+                record.rawImageCanvas || record.imageCanvas,
+                x + 8,
+                imageY,
+                'raw decoded'
+            );
+            this.drawSpritePreviewImage(
+                context,
+                record.textureBufferCanvas || record.imageCanvas,
                 x + 210,
                 imageY,
-                record.correctedImageThresholded ? 'iso + binary' : 'iso corrected'
+                'texture buffer'
             );
             this.drawSpritePreviewImage(
                 context,
                 record.maskCanvas,
                 x + 412,
                 imageY,
-                'mask bits'
+                'raw mask'
             );
         });
     }
@@ -5245,10 +6738,10 @@ export class KnightLoreStage0Renderer {
                 + 'The bit order is treated as most-significant-bit first, left to right.'
                 + '</p>',
             '<p class="knight-lore-stage2-note">'
-                + 'Focused atlas for the main-character billboard pass: candidate sprites 0x18, 0x19, '
-                + '0x1D, 0x1E, 0x7C, and 0x7E. All previews in this temporary set are vertically flipped. '
-                + 'The raw colour preview is the primary reference for this pass; '
-                + 'the corrected preview remains visible only as a comparison with the existing texture pipeline.'
+                + 'Focused Stage 7.1 atlas for the non-player billboard pass: guard square heads 0x1E..0x1F, '
+                + 'the guard body/head sequence 0x90..0x9D including 0x96..0x97, and wizard heads 0x9E..0x9F. '
+                + 'All previews use the same actor buffer flip convention as the main-character billboards '
+                + 'unless a sprite-specific exception is found.'
                 + '</p>',
             '<p class="knight-lore-stage2-note">'
                 + 'Preview canvas uses the current room attribute '
@@ -5257,11 +6750,8 @@ export class KnightLoreStage0Renderer {
                 + escapeHtml(inkColor)
                 + ' over paper '
                 + escapeHtml(paperColor)
-                + '; mask bits are shown separately in greyscale. The middle preview applies a 2:1 '
-                + 'isometric slope correction using arctan(1/2), matching the default Full 3D Dewarp pass'
-                + (this.wallTextureBinaryThreshold > 0
-                    ? ', then the fixed binary threshold ' + this.wallTextureBinaryThreshold + '.'
-                    : '.')
+                + '; the middle preview is the transparent billboard texture buffer after the actor Y flip '
+                + 'and current billboard UV X flip; raw mask bits are shown separately in greyscale.'
                 + '</p>',
             '<canvas class="knight-lore-sprite-texture-preview" width="1" height="1" '
                 + 'aria-label="Decoded sprite texture previews"></canvas>',
@@ -5310,8 +6800,279 @@ export class KnightLoreStage0Renderer {
                             '<td class="mono">' + escapeHtml(texture.valid ? texture.widthBytes : '--') + '</td>' +
                             '<td class="mono">' + escapeHtml(planeBytes) + '</td>' +
                             '<td class="mono">' + escapeHtml(bitCounts) + '</td>' +
-                            '<td>' + escapeHtml(texture.yFlipped ? 'flip Y' : 'none') + '</td>' +
+                            '<td>' + escapeHtml(texture.yFlipped ? 'actor buffer X+Y' : 'actor buffer X') + '</td>' +
                             '<td>' + escapeHtml(texture.valid ? 'decoded' : (texture.warning || 'invalid')) + '</td>' +
+                            '</tr>'
+                        );
+                    }).join(''),
+                    '</tbody>',
+                    '</table>',
+                ].join(''),
+        ].join('');
+    }
+
+    renderFocusedActorSlotTable(rows) {
+        const records = rows || [];
+
+        return [
+            '<div class="knight-lore-stage2-comparison-heading is-secondary">',
+            '<strong>Focused guard/wizard slots</strong>',
+            '<span>guards 0x60C8, 0x6028, 0x6048; wizard rows 8 and 9</span>',
+            '</div>',
+            '<p class="knight-lore-stage2-note">'
+                + 'Compact live view of the slots we are validating now. '
+                + 'Flags are decoded from +7: hflip is bit 6, while wipe/draw are transient bits 5 and 4. '
+                + 'For NSEW guard/wizard movement, +13 low two bits decode as west, north, east, south. '
+                + 'dXYZ is shown as signed bytes.'
+                + '</p>',
+            '<table>',
+            '<thead><tr>',
+            '<th>Focus</th>',
+            '<th>Source</th>',
+            '<th>Address</th>',
+            '<th>Obj slot</th>',
+            '<th>Sprite +0</th>',
+            '<th>XYZ +1..+3</th>',
+            '<th>Dim +4..+6</th>',
+            '<th>Flags +7</th>',
+            '<th>Room +8</th>',
+            '<th>dXYZ +9..+11</th>',
+            '<th>Info +13</th>',
+            '<th>Bytes +0..+13</th>',
+            '</tr></thead>',
+            '<tbody>',
+            records.map(row => {
+                const record = row.record;
+                const slotRaw = record && Array.isArray(record.slotRaw) ? record.slotRaw : [];
+                const objectSlot = record ? objectTableSlotIndexForAddress(record.address) : null;
+                const flags = liveActorFlagsFromRecord(record);
+                const rowClass = record
+                    ? ''
+                    : ' class="is-missing-dynamic"';
+                return (
+                    '<tr' + rowClass + '>' +
+                    '<td>' + escapeHtml(row.label) + '</td>' +
+                    '<td class="mono" title="' + escapeHtml(row.source) + '">'
+                        + escapeHtml(row.expected || row.source || '--')
+                        + '</td>' +
+                    '<td class="mono">' + escapeHtml(formatRecordAddress(record ? record.address : null)) + '</td>' +
+                    '<td class="mono">' + escapeHtml(objectSlot === null ? '--' : objectSlot) + '</td>' +
+                    '<td class="mono">' + escapeHtml(formatHex(record ? record.spriteId : null, 2)) + '</td>' +
+                    '<td class="mono">' + escapeHtml(formatRoomSize(record ? record.position : null)) + '</td>' +
+                    '<td class="mono">' + escapeHtml(formatRoomSize(record ? record.dimensions : null)) + '</td>' +
+                    '<td class="mono">' + escapeHtml(formatLiveActorFlags(flags)) + '</td>' +
+                    '<td class="mono">' + escapeHtml(formatHex(slotRaw[8], 2)) + '</td>' +
+                    '<td class="mono">' + escapeHtml(formatSignedByteTriplet(slotRaw, 9)) + '</td>' +
+                    '<td class="mono">' + escapeHtml(formatGuardWizardInfoByte(slotRaw[13])) + '</td>' +
+                    '<td class="mono">' + escapeHtml(formatByteList(slotRaw.slice(0, 14))) + '</td>' +
+                    '</tr>'
+                );
+            }).join(''),
+            '</tbody>',
+            '</table>',
+        ].join('');
+    }
+
+    focusedWizardByteWindows() {
+        return FOCUSED_WIZARD_WINDOW_STARTS.map((startAddress, index) => {
+            const bytes = readFrameMemoryWindow(
+                this.latestFrame,
+                startAddress,
+                FOCUSED_WIZARD_WINDOW_LENGTH
+            );
+            const state = this.focusedWizardByteWindowState.get(startAddress) || {
+                previousBytes: [],
+                changedUntilByOffset: new Map(),
+                lastChangeByOffset: new Map(),
+            };
+            let changedCount = 0;
+
+            bytes.forEach((value, offset) => {
+                const previous = state.previousBytes[offset];
+                const readable = value !== null && value !== undefined;
+                const hadPrevious = previous !== null && previous !== undefined;
+                if (readable && hadPrevious && previous !== value) {
+                    state.changedUntilByOffset.set(
+                        offset,
+                        this.frameCounter + FOCUSED_WIZARD_CHANGE_HOLD_FRAMES
+                    );
+                    state.lastChangeByOffset.set(offset, {
+                        before: previous,
+                        after: value,
+                        frame: this.frameCounter,
+                    });
+                    changedCount += 1;
+                }
+            });
+
+            state.previousBytes = bytes.slice();
+            this.focusedWizardByteWindowState.set(startAddress, state);
+
+            return {
+                startAddress,
+                label: 'row ' + FOCUSED_WIZARD_COMPARISON_ROWS[index],
+                bytes,
+                state,
+                changedCount,
+            };
+        });
+    }
+
+    focusedWizardByteCell(window, offset) {
+        const value = window && Array.isArray(window.bytes) ? window.bytes[offset] : null;
+        const changedUntil = window && window.state
+            ? window.state.changedUntilByOffset.get(offset)
+            : null;
+        const recentChange = window && window.state
+            ? window.state.lastChangeByOffset.get(offset)
+            : null;
+        const isRecentlyChanged = Number.isFinite(changedUntil) && changedUntil >= this.frameCounter;
+        const className = 'mono' + (isRecentlyChanged ? ' is-selected-byte' : '');
+        const titleParts = [
+            formatRecordAddress(window ? window.startAddress + offset : null),
+            'dec ' + (value === null || value === undefined ? '--' : value),
+            'signed ' + formatSignedByte(value),
+        ];
+        if (isRecentlyChanged && recentChange) {
+            titleParts.push(
+                'changed '
+                    + formatHex(recentChange.before, 2)
+                    + '>'
+                    + formatHex(recentChange.after, 2)
+                    + ' at frame '
+                    + recentChange.frame
+            );
+        }
+
+        return '<td class="' + className + '" title="' + escapeHtml(titleParts.join(', ')) + '">'
+            + escapeHtml(formatHex(value, 2))
+            + '</td>';
+    }
+
+    focusedWizardByteChangeSummary(window, offset) {
+        if (!window || !window.state) return '--';
+        const changedUntil = window.state.changedUntilByOffset.get(offset);
+        const recentChange = window.state.lastChangeByOffset.get(offset);
+        if (!Number.isFinite(changedUntil) || changedUntil < this.frameCounter || !recentChange) {
+            return '--';
+        }
+
+        return formatRecordAddress(window.startAddress + offset)
+            + ' '
+            + formatHex(recentChange.before, 2)
+            + '>'
+            + formatHex(recentChange.after, 2)
+            + ' f'
+            + recentChange.frame;
+    }
+
+    renderFocusedWizardByteWindowTable() {
+        const windows = this.focusedWizardByteWindows();
+        const summary = windows.map(window => (
+            formatRecordAddress(window.startAddress)
+                + ': '
+                + window.changedCount
+                + ' changed this frame'
+        )).join(', ');
+
+        return [
+            '<div class="knight-lore-stage2-comparison-heading is-secondary">',
+            '<strong>Wizard byte windows</strong>',
+            '<span>'
+                + escapeHtml(summary)
+                + '</span>',
+            '</div>',
+            '<p class="knight-lore-stage2-note">'
+                + 'Full 0x20-byte live windows starting at 0x5D88 and 0x5DA8. '
+                + 'Recently changed cells are highlighted briefly so fast flags are easier to spot.'
+                + '</p>',
+            '<table>',
+            '<thead><tr>',
+            '<th>Offset</th>',
+            '<th>Field guess</th>',
+            '<th>0x5D88 row 8</th>',
+            '<th>0x5DA8 row 9</th>',
+            '<th>Recent changes</th>',
+            '</tr></thead>',
+            '<tbody>',
+            Array.from({length: FOCUSED_WIZARD_WINDOW_LENGTH}, (_unused, offset) => {
+                const changes = windows
+                    .map(window => this.focusedWizardByteChangeSummary(window, offset))
+                    .filter(summaryText => summaryText !== '--')
+                    .join(' | ') || '--';
+                return (
+                    '<tr>' +
+                    '<td class="mono">+' + escapeHtml(formatHex(offset, 2)) + '</td>' +
+                    '<td>' + escapeHtml(formatObjectSlotByteField(offset)) + '</td>' +
+                    this.focusedWizardByteCell(windows[0], offset) +
+                    this.focusedWizardByteCell(windows[1], offset) +
+                    '<td class="mono">' + escapeHtml(changes) + '</td>' +
+                    '</tr>'
+                );
+            }).join(''),
+            '</tbody>',
+            '</table>',
+        ].join('');
+    }
+
+    renderLiveObjectSlotTable(liveObjectRecords) {
+        const records = liveObjectRecords || [];
+        const visibleRows = records.slice(0, LIVE_ACTOR_MAX_ROWS);
+        const overflowNote = records.length > LIVE_ACTOR_MAX_ROWS
+            ? '<p class="knight-lore-stage2-note">Showing first '
+                + LIVE_ACTOR_MAX_ROWS
+                + ' live object slots; '
+                + (records.length - LIVE_ACTOR_MAX_ROWS)
+                + ' additional slots hidden.</p>'
+            : '';
+
+        return [
+            '<div class="knight-lore-stage2-comparison-heading is-secondary">',
+            '<strong>All live object slots</strong>',
+            '<span>ASM table 0x5C08, active slots: '
+                + records.length
+                + '</span>',
+            '</div>',
+            '<p class="knight-lore-stage2-note">'
+                + 'Plain listing of active 0x20-byte object slots from the disassembly layout. '
+                + 'Use this table to identify wizard/guard/ghost rows visually before we hard-code any renderer assumptions.'
+                + '</p>',
+            records.length === 0
+                ? '<p class="knight-lore-stage2-note is-warning">No active live object slots found.</p>'
+                : [
+                    overflowNote,
+                    '<table>',
+                    '<thead><tr>',
+                    '<th>Obj slot</th>',
+                    '<th>Address</th>',
+                    '<th>Sprite +0</th>',
+                    '<th>Class hint</th>',
+                    '<th>XYZ +1..+3</th>',
+                    '<th>Dim +4..+6</th>',
+                    '<th>Flags +7</th>',
+                    '<th>Room +8</th>',
+                    '<th>dXYZ +9..+11</th>',
+                    '<th>Info +13</th>',
+                    '<th>Bytes +0..+13</th>',
+                    '</tr></thead>',
+                    '<tbody>',
+                    visibleRows.map(record => {
+                        const slotRaw = Array.isArray(record.slotRaw) ? record.slotRaw : [];
+                        const objectSlot = objectTableSlotIndexForAddress(record.address);
+                        const flags = liveActorFlagsFromRecord(record);
+                        return (
+                            '<tr>' +
+                            '<td class="mono">' + escapeHtml(objectSlot === null ? '--' : objectSlot) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatRecordAddress(record.address)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatHex(record.spriteId, 2)) + '</td>' +
+                            '<td>' + escapeHtml(classifyLiveObjectRecord(record)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatRoomSize(record.position)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatRoomSize(record.dimensions)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatLiveActorFlags(flags)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatHex(slotRaw[8], 2)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatSignedByteTriplet(slotRaw, 9)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatHex(slotRaw[13], 2)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatByteList(slotRaw.slice(0, 14))) + '</td>' +
                             '</tr>'
                         );
                     }).join(''),
@@ -5385,6 +7146,209 @@ export class KnightLoreStage0Renderer {
                                 + '</td>' +
                             '<td class="mono">' + escapeHtml(formatByteList(record.raw)) + '</td>' +
                             '<td class="mono">' + escapeHtml(formatByteList(record.slotRaw)) + '</td>' +
+                            '</tr>'
+                        );
+                    }).join(''),
+                    '</tbody>',
+                    '</table>',
+                ].join(''),
+        ].join('');
+    }
+
+    renderLiveActorCandidateTable(actorCandidates) {
+        const visibleRows = actorCandidates.slice(0, LIVE_ACTOR_MAX_ROWS);
+        const overflowNote = actorCandidates.length > LIVE_ACTOR_MAX_ROWS
+            ? '<p class="knight-lore-stage2-note">Showing first '
+                + LIVE_ACTOR_MAX_ROWS
+                + ' live actor candidates; '
+                + (actorCandidates.length - LIVE_ACTOR_MAX_ROWS)
+                + ' additional candidates hidden.</p>'
+            : '';
+
+        return [
+            '<div class="knight-lore-stage2-comparison-heading is-secondary">',
+            '<strong>Live actor candidates</strong>',
+            '<span>ASM object slots; candidates: '
+                + actorCandidates.length
+                + '</span>',
+            '</div>',
+            '<p class="knight-lore-stage2-note">'
+                + 'Rows are classified from live working-memory sprite ids. '
+                + 'The ASM object table starts at 0x5C08, while the older dynamic diagnostics start at 0x5C88; '
+                + 'hflip is bit 6 of slot +7.'
+                + '</p>',
+            actorCandidates.length === 0
+                ? '<p class="knight-lore-stage2-note is-warning">No guard, wizard, or ghost sprite candidates found in the live dynamic slots.</p>'
+                : [
+                    overflowNote,
+                    '<table>',
+                    '<thead><tr>',
+                    '<th>Actor</th>',
+                    '<th>Part</th>',
+                    '<th>Obj / Dyn slot</th>',
+                    '<th>Address</th>',
+                    '<th>Sprite</th>',
+                    '<th>XYZ</th>',
+                    '<th>Dim</th>',
+                    '<th>dXYZ</th>',
+                    '<th>Flags +7</th>',
+                    '<th>Room +8</th>',
+                    '<th>Info +13</th>',
+                    '<th>Pair</th>',
+                    '</tr></thead>',
+                    '<tbody>',
+                    visibleRows.map(row => {
+                        const record = row.record;
+                        const slotRaw = Array.isArray(record.slotRaw) ? record.slotRaw : [];
+                        const rowClass = row.actor && row.actor !== 'guard/wizard'
+                            ? ' class="is-special-object is-' + escapeHtml(row.actor) + '"'
+                            : '';
+                        const dynamicSlot = Number.isFinite(record.slotIndex)
+                            ? record.slotIndex
+                            : '--';
+                        const objectSlot = Number.isFinite(row.objectSlot)
+                            ? row.objectSlot
+                            : '--';
+                        return (
+                            '<tr' + rowClass + '>' +
+                            '<td>' + escapeHtml(row.actor || row.classification.actor) + '</td>' +
+                            '<td>' + escapeHtml(row.classification.part) + '</td>' +
+                            '<td class="mono">' + escapeHtml(objectSlot + ' / ' + dynamicSlot) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatRecordAddress(record.address)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatHex(record.spriteId, 2)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatRoomSize(record.position)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatRoomSize(record.dimensions)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatSignedByteTriplet(slotRaw, 9)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatLiveActorFlags(row.flags)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatHex(slotRaw[8], 2)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(formatHex(slotRaw[13], 2)) + '</td>' +
+                            '<td class="mono">' + escapeHtml(row.pairLabel) + '</td>' +
+                            '</tr>'
+                        );
+                    }).join(''),
+                    '</tbody>',
+                    '</table>',
+                ].join(''),
+        ].join('');
+    }
+
+    currentLiveActorBillboardSelection() {
+        const facingScores = this.computePlayerSpriteBillboardFacingScores({camera: this.camera});
+        return selectedSpriteBillboardFacingForView(this.activeViewPreset, facingScores);
+    }
+
+    renderLiveActorBillboardPolicyTable(room) {
+        const specs = liveActorBillboardSpecsForRoom(room);
+        const selection = this.currentLiveActorBillboardSelection();
+        const selectedFacing = selection.selectedFacing || null;
+        const textureEnabled = liveActorTextureEnabledForView(this.activeViewPreset);
+
+        return [
+            '<div class="knight-lore-stage2-comparison-heading is-secondary">',
+            '<strong>Live actor billboard policy</strong>',
+            '<span>view '
+                + escapeHtml(this.activeViewPreset)
+                + ', selected side '
+                + escapeHtml(selectedFacing || '--')
+                + ', textures '
+                + (textureEnabled ? 'enabled' : 'off')
+                + '</span>',
+            '</div>',
+            '<p class="knight-lore-stage2-note">'
+                + 'Actor facing is derived from +9/+10 signed velocity, then +13 low two bits, then sprite-family side clue. '
+                + '+7 bit 6 is combined with actor-specific policy hflip. The game view uses live sprite ids; non-game actor views may remap only the sprite side, preserving each half phase.'
+                + '</p>',
+            specs.length === 0
+                ? '<p class="knight-lore-stage2-note is-warning">No live guard/wizard billboards in this room.</p>'
+                : [
+                    '<table>',
+                    '<thead><tr>',
+                    '<th>Actor</th>',
+                    '<th>Billboard side</th>',
+                    '<th>Actor facing</th>',
+                    '<th>Relative view</th>',
+                    '<th>Lower / upper sprites</th>',
+                    '<th>Mirror lower / upper</th>',
+                    '<th>Texture side</th>',
+                    '<th>Policy fix</th>',
+                    '<th>Policy</th>',
+                    '</tr></thead>',
+                    '<tbody>',
+                    specs.map(spec => {
+                        const lowerSelectionBase = resolveLiveActorTextureSelection({
+                            spec,
+                            record: spec.lowerRecord,
+                            selectedFacing,
+                            viewPreset: this.activeViewPreset,
+                        });
+                        const topSelectionBase = resolveLiveActorTextureSelection({
+                            spec,
+                            record: spec.topRecord,
+                            selectedFacing,
+                            viewPreset: this.activeViewPreset,
+                        });
+                        const lowerSelectionResult = this.actorSpriteBillboardTextureMaterialForSelection(
+                            spec.actor,
+                            lowerSelectionBase
+                        );
+                        const topSelectionResult = this.actorSpriteBillboardTextureMaterialForSelection(
+                            spec.actor,
+                            topSelectionBase
+                        );
+                        const lowerSelection = lowerSelectionResult.selection || lowerSelectionBase;
+                        const topSelection = topSelectionResult.selection || topSelectionBase;
+                        const actorFacing = lowerSelection.actorFacing || topSelection.actorFacing;
+                        const relativeView = lowerSelection.relativeView !== 'unknown'
+                            ? lowerSelection.relativeView
+                            : topSelection.relativeView;
+                        return (
+                            '<tr>' +
+                            '<td>' + escapeHtml(spec.actor || '--') + '</td>' +
+                            '<td class="mono">' + escapeHtml(selectedFacing || '--') + '</td>' +
+                            '<td class="mono">' + escapeHtml(
+                                (actorFacing.facing || '--')
+                                + ' / '
+                                + actorFacing.source
+                                + ' '
+                                + actorFacing.detail
+                            ) + '</td>' +
+                            '<td class="mono">' + escapeHtml(relativeView) + '</td>' +
+                            '<td class="mono">' + escapeHtml(
+                                formatSpriteMaterialSelection(
+                                    lowerSelection.liveSpriteId,
+                                    lowerSelection.textureSpriteId
+                                )
+                                + ' / '
+                                + formatSpriteMaterialSelection(
+                                    topSelection.liveSpriteId,
+                                    topSelection.textureSpriteId
+                                )
+                            ) + '</td>' +
+                            '<td class="mono">' + escapeHtml(
+                                (lowerSelection.mirrorTextureX ? 'Y' : 'n')
+                                + ' / '
+                                + (topSelection.mirrorTextureX ? 'Y' : 'n')
+                            ) + '</td>' +
+                            '<td class="mono">' + escapeHtml(
+                                lowerSelection.textureSide
+                                + ' / '
+                                + topSelection.textureSide
+                            ) + '</td>' +
+                            '<td class="mono">' + escapeHtml(
+                                'swap '
+                                + (lowerSelection.policySwapTextureSide ? 'Y' : 'n')
+                                + '/'
+                                + (topSelection.policySwapTextureSide ? 'Y' : 'n')
+                                + ', hmir '
+                                + (lowerSelection.policyFacingMirrorTextureX ? 'Y' : 'n')
+                                + '/'
+                                + (topSelection.policyFacingMirrorTextureX ? 'Y' : 'n')
+                            ) + '</td>' +
+                            '<td class="mono">' + escapeHtml(
+                                lowerSelection.policy
+                                + ' / '
+                                + topSelection.policy
+                            ) + '</td>' +
                             '</tr>'
                         );
                     }).join(''),
@@ -5487,8 +7451,10 @@ export class KnightLoreStage0Renderer {
             button.setAttribute('aria-checked', isActive ? 'true' : 'false');
         });
         if (this.latestFrame) {
+            this.updateSpecialDynamicMarkers();
             this.updateObjectWireframes();
             this.updateFull3DObjectModels();
+            this.updateLiveActorBillboards();
             this.updatePlayerProxy();
         }
         if (this.lastSpellProbeRows && this.lastSpellProbeRows.length > 0) {
@@ -5506,12 +7472,6 @@ export class KnightLoreStage0Renderer {
         }
         if (this.playerSpriteBillboardWireframeToggle) {
             this.playerSpriteBillboardWireframeToggle.checked = this.playerSpriteBillboardWireframeEnabled;
-        }
-        if (this.playerSpriteBillboardPhaseBypassDebugToggle) {
-            this.playerSpriteBillboardPhaseBypassDebugToggle.checked = this.playerSpriteBillboardPhaseBypassDebugEnabled;
-        }
-        if (this.playerSpriteBillboardStorageBypassDebugToggle) {
-            this.playerSpriteBillboardStorageBypassDebugToggle.checked = this.playerSpriteBillboardStorageBypassDebugEnabled;
         }
         if (this.wallTextureDewarpControl) {
             this.wallTextureDewarpControl.classList.toggle('is-disabled', !this.wallTextureDewarpEnabled);
@@ -5542,35 +7502,10 @@ export class KnightLoreStage0Renderer {
 
         this.playerSpriteBillboardWireframeEnabled = nextEnabled;
         this.updateWallTextureDewarpControl();
-        if (this.latestFrame) this.updatePlayerProxy();
-        this.updateSummary();
-        this.render();
-    }
-
-    setPlayerSpriteBillboardPhaseBypassDebugEnabled(enabled) {
-        const nextEnabled = Boolean(enabled);
-        if (nextEnabled === this.playerSpriteBillboardPhaseBypassDebugEnabled) {
-            this.updateWallTextureDewarpControl();
-            return;
+        if (this.latestFrame) {
+            this.updatePlayerProxy();
+            this.updateLiveActorBillboards();
         }
-
-        this.playerSpriteBillboardPhaseBypassDebugEnabled = nextEnabled;
-        this.updateWallTextureDewarpControl();
-        if (this.latestFrame) this.updatePlayerProxy();
-        this.updateSummary();
-        this.render();
-    }
-
-    setPlayerSpriteBillboardStorageBypassDebugEnabled(enabled) {
-        const nextEnabled = Boolean(enabled);
-        if (nextEnabled === this.playerSpriteBillboardStorageBypassDebugEnabled) {
-            this.updateWallTextureDewarpControl();
-            return;
-        }
-
-        this.playerSpriteBillboardStorageBypassDebugEnabled = nextEnabled;
-        this.updateWallTextureDewarpControl();
-        if (this.latestFrame) this.updatePlayerProxy();
         this.updateSummary();
         this.render();
     }
@@ -5639,6 +7574,9 @@ export class KnightLoreStage0Renderer {
         if (this.full3DObjectGroup) {
             this.full3DObjectGroup.visible = roomVisible && this.activeRenderMode === 'full-3d';
         }
+        if (this.liveActorBillboardGroup) {
+            this.liveActorBillboardGroup.visible = roomVisible && this.activeRenderMode === 'full-3d';
+        }
     }
 
     setViewPreset(id) {
@@ -5652,6 +7590,7 @@ export class KnightLoreStage0Renderer {
         this.camera.up.set(...preset.up).normalize();
         this.camera.lookAt(target);
         if (this.latestFrame) this.updatePlayerProxy();
+        if (this.latestFrame) this.updateLiveActorBillboards();
         this.updateFull3DBackgroundWallTextureVisibility();
         this.updateWallVisibility();
         this.resize();
@@ -5780,6 +7719,11 @@ export class KnightLoreStage0Renderer {
         this.playerTopBottomMarkerArrow.geometry.dispose();
         this.playerTopBottomMarkerDiskMaterial.dispose();
         this.playerTopBottomMarkerArrowMaterial.dispose();
+        this.liveActorBillboardGeometry.dispose();
+        this.liveActorBillboardPlaneGeometry.dispose();
+        this.liveActorBillboardMaterials.forEach(material => {
+            material.dispose();
+        });
         this.playerSpriteBillboardGeometry.dispose();
         this.playerSpriteBillboardPlaneGeometry.dispose();
         this.playerSpriteBillboardFullGeometry.dispose();
@@ -5789,6 +7733,7 @@ export class KnightLoreStage0Renderer {
         });
         this.playerSpriteBillboardFallbackTextureMaterial.dispose();
         this.clearPlayerSpriteBillboardTextureMaterials();
+        this.clearActorSpriteBillboardTextureMaterials();
         this.playerHumanMaterial.dispose();
         this.playerWolfMaterial.dispose();
         this.playerUnknownMaterial.dispose();
