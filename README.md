@@ -1,3 +1,5 @@
+![Knight Lore 2026](static/knight-lore-2026-banner.png)
+
 # Knight Lore 2026
 
 Knight Lore 2026 is an experimental browser project that runs the ZX Spectrum
