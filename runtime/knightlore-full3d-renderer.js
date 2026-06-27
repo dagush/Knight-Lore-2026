@@ -5,6 +5,7 @@ import {
 } from './knightlore.js';
 import {
     blockUnitsToSceneSize,
+    createCauldronModel,
     createFull3DObjectModel,
     createRicardArchModel,
 } from './knightlore-full3d-objects.js';
@@ -83,6 +84,8 @@ const DEFAULT_WALL_TEXTURE_BINARY_THRESHOLD = 141;
 const TALL_WALL_TEXTURE_QUAD_SCALE = 0.8;
 const WOODEN_TEXTURE_ASPECT_RATIO = 16 / 48;
 const WOODEN_TEXTURE_TARGET_HEIGHT = 48;
+const CAULDRON_BROTH_SPRITE_ID = 0x8e;
+const CAULDRON_BROTH_VERTICAL_STRETCH = 2.35;
 const LIVE_FIXED_BACKGROUND_IDS = new Set([0x12]);
 const FIXED_BACKGROUND_MARKERS = {
     0x12: {
@@ -382,6 +385,88 @@ export class KnightLoreFull3DBackgroundRenderer {
         }
         texture.needsUpdate = true;
         return texture;
+    }
+
+    createCauldronBrothCanvas(expanded) {
+        if (!expanded || typeof document === 'undefined') return null;
+        const sourceCanvas = document.createElement('canvas');
+        sourceCanvas.width = expanded.widthPixels;
+        sourceCanvas.height = expanded.heightPixels;
+
+        const sourceContext = sourceCanvas.getContext('2d');
+        if (!sourceContext) return null;
+
+        const imageData = sourceContext.createImageData(sourceCanvas.width, sourceCanvas.height);
+        const ink = rgbFromHexColor(spectrumInkColorFromAttribute(this.colourAttribute));
+        for (let y = 0; y < expanded.heightPixels; y++) {
+            for (let x = 0; x < expanded.widthPixels; x++) {
+                const sourceIndex = y * expanded.widthPixels + x;
+                const pixelIndex = sourceIndex * 4;
+                const visible = expanded.imagePixels[sourceIndex];
+                imageData.data[pixelIndex] = ink.r;
+                imageData.data[pixelIndex + 1] = ink.g;
+                imageData.data[pixelIndex + 2] = ink.b;
+                imageData.data[pixelIndex + 3] = visible ? 0xff : 0x00;
+            }
+        }
+        sourceContext.putImageData(imageData, 0, 0);
+
+        const stretchedCanvas = document.createElement('canvas');
+        stretchedCanvas.width = sourceCanvas.width;
+        stretchedCanvas.height = Math.max(
+            1,
+            Math.round(sourceCanvas.height * CAULDRON_BROTH_VERTICAL_STRETCH)
+        );
+        const stretchedContext = stretchedCanvas.getContext('2d');
+        if (!stretchedContext) return sourceCanvas;
+        stretchedContext.imageSmoothingEnabled = false;
+        stretchedContext.clearRect(0, 0, stretchedCanvas.width, stretchedCanvas.height);
+        stretchedContext.drawImage(
+            sourceCanvas,
+            0,
+            0,
+            stretchedCanvas.width,
+            stretchedCanvas.height
+        );
+        return stretchedCanvas;
+    }
+
+    generatedCauldronBrothTextureRecord() {
+        const texture = getKnightLoreSpriteTexture(this.latestFrame, CAULDRON_BROTH_SPRITE_ID)
+            || getKnightLoreSpriteTexture(this.staticMemory, CAULDRON_BROTH_SPRITE_ID);
+        if (!texture || !texture.valid) return null;
+
+        const cacheKey = [
+            'cauldron-broth',
+            texture.id,
+            this.colourAttribute === null || this.colourAttribute === undefined ? '--' : this.colourAttribute,
+            CAULDRON_BROTH_VERTICAL_STRETCH,
+            texture.dataAddress,
+            texture.dataEndAddress,
+            texture.widthPixels,
+            texture.heightPixels,
+            texture.imageBitCount,
+            texture.maskBitCount,
+        ].join(':');
+
+        const cached = this.textureCache.get(cacheKey);
+        if (cached) return cached;
+
+        const expanded = expandKnightLoreSpriteTexture(texture);
+        if (!expanded) return null;
+        const imageCanvas = this.createCauldronBrothCanvas(expanded);
+        if (!imageCanvas) return null;
+
+        const record = {
+            key: cacheKey,
+            spriteId: texture.id,
+            texture,
+            imageCanvas,
+            imageTexture: this.createCanvasTexture(imageCanvas),
+            verticalStretch: CAULDRON_BROTH_VERTICAL_STRETCH,
+        };
+        this.textureCache.set(cacheKey, record);
+        return record;
     }
 
     generatedBackgroundTextureRecord(spriteId) {
@@ -920,6 +1005,11 @@ export class KnightLoreFull3DBackgroundRenderer {
     }
 
     addFixedBackgroundMarker(background, index) {
+        if (background.id === 0x13) {
+            this.addCauldronBackground(background, index);
+            return;
+        }
+
         const markerInfo = fixedBackgroundMarker(background);
         const group = new THREE.Group();
         const records = Array.isArray(background.records) ? background.records : [];
@@ -966,6 +1056,32 @@ export class KnightLoreFull3DBackgroundRenderer {
 
         group.userData.backgroundId = background.id;
         group.userData.backgroundLabel = markerInfo.label;
+        this.group.add(group);
+    }
+
+    addCauldronBackground(background, index) {
+        const markerInfo = fixedBackgroundMarker(background);
+        const brothTextureRecord = this.generatedCauldronBrothTextureRecord();
+        if (brothTextureRecord) this.activeTextureKeys.add(brothTextureRecord.key);
+
+        const group = new THREE.Group();
+        const cauldron = createCauldronModel({
+            brothTexture: brothTextureRecord ? brothTextureRecord.imageTexture : null,
+        });
+        cauldron.position.set(0, 0, 0);
+        cauldron.userData.backgroundId = background.id;
+        cauldron.userData.backgroundLabel = markerInfo.label;
+        cauldron.userData.backgroundRecordIndex = 0;
+        cauldron.userData.cauldronPlacement = 'room-center';
+        cauldron.userData.brothSpriteId = CAULDRON_BROTH_SPRITE_ID;
+        cauldron.userData.brothTextureKey = brothTextureRecord ? brothTextureRecord.key : null;
+        group.add(cauldron);
+
+        group.userData.backgroundId = background.id;
+        group.userData.backgroundLabel = markerInfo.label;
+        group.userData.cauldronPlacement = 'room-center';
+        group.userData.brothSpriteId = CAULDRON_BROTH_SPRITE_ID;
+        group.userData.brothTextureGenerated = Boolean(brothTextureRecord);
         this.group.add(group);
     }
 

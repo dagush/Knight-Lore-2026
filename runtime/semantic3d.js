@@ -69,6 +69,9 @@ const PLAYER_SPRITE_BILLBOARD_DIRECTION_OFFSET = 0.16;
 const PLAYER_TOP_BOTTOM_MARKER_RADIUS = PLAYER_SPRITE_BILLBOARD_HALF_SIZE.width * 0.42;
 const PLAYER_TOP_BOTTOM_MARKER_ARROW_LENGTH = PLAYER_SPRITE_BILLBOARD_HALF_SIZE.depth * 0.82;
 const PLAYER_TOP_BOTTOM_MARKER_HEIGHT = PLAYER_SPRITE_BILLBOARD_HALF_SIZE.height * 2 + 1;
+const LIVE_ACTOR_TOP_BOTTOM_MARKER_RADIUS = PLAYER_SPRITE_BILLBOARD_HALF_SIZE.width * 0.34;
+const LIVE_ACTOR_TOP_BOTTOM_MARKER_ARROW_LENGTH = PLAYER_SPRITE_BILLBOARD_HALF_SIZE.depth * 0.64;
+const LIVE_ACTOR_TOP_BOTTOM_MARKER_HEIGHT = PLAYER_TOP_BOTTOM_MARKER_HEIGHT;
 const PLAYER_SPRITE_BILLBOARD_FACINGS = [
     {id: 'north', color: 0x38bdf8, normal: new THREE.Vector3(0, 0, -1)},
     {id: 'east', color: 0x22c55e, normal: new THREE.Vector3(1, 0, 0)},
@@ -481,6 +484,9 @@ const VIEW_PRESETS = [
     {id: 'upper-back-right', label: 'Upper north east', direction: [1, 0.72, -1], up: [0, 1, 0]},
     {id: 'upper-back-left', label: 'Upper north west', direction: [-1, 0.72, -1], up: [0, 1, 0]},
 ];
+const FULL3D_AMBIENT_LIGHT_INTENSITY = 0.64;
+const FULL3D_DIRECTIONAL_LIGHT_INTENSITY = 0.72;
+const FULL3D_DIRECTIONAL_LIGHT_POSITION = [-1, 0.72, 1];
 
 const RENDER_MODES = [
     {id: 'schematic', label: 'Schematic'},
@@ -1896,6 +1902,13 @@ function sceneFacingFromGameAxis(axisFacing) {
     return PLAYER_AXIS_TO_SCENE_FACING[axisFacing] || axisFacing || null;
 }
 
+function sceneFacingForLiveActorTopBottomMarker(facing) {
+    // Actor facing is decoded in game Y-space; top/bottom markers rotate in scene Z-space.
+    if (facing === 'north') return 'south';
+    if (facing === 'south') return 'north';
+    return facing;
+}
+
 function relativePlayerView(characterFacing, cameraSide) {
     const characterIndex = PLAYER_SPRITE_BILLBOARD_FACING_INDEX[characterFacing];
     const cameraSideIndex = PLAYER_SPRITE_BILLBOARD_FACING_INDEX[cameraSide];
@@ -2299,6 +2312,18 @@ export class KnightLoreStage0Renderer {
         this.canvasHost.appendChild(this.renderer.domElement);
         this.canvasHost.appendChild(this.directionOverlayElement);
 
+        this.ambientLight = new THREE.AmbientLight(0xffffff, FULL3D_AMBIENT_LIGHT_INTENSITY);
+        this.scene.add(this.ambientLight);
+        this.directionalLight = new THREE.DirectionalLight(0xffffff, FULL3D_DIRECTIONAL_LIGHT_INTENSITY);
+        this.directionalLight.castShadow = false;
+        this.directionalLight.position
+            .set(...FULL3D_DIRECTIONAL_LIGHT_POSITION)
+            .normalize()
+            .multiplyScalar(500);
+        this.directionalLight.target.position.set(0, 0, 0);
+        this.scene.add(this.directionalLight);
+        this.scene.add(this.directionalLight.target);
+
         this.gridHelper = new THREE.GridHelper(200, 10, 0x6b7280, 0x374151);
         this.axesHelper = new THREE.AxesHelper(72);
         this.scene.add(this.gridHelper);
@@ -2367,6 +2392,23 @@ export class KnightLoreStage0Renderer {
             PLAYER_SPRITE_BILLBOARD_HALF_SIZE.height
         );
         this.liveActorBillboardMaterials = new Map();
+        this.liveActorTopBottomMarkerDiskGeometry = new THREE.CircleGeometry(
+            LIVE_ACTOR_TOP_BOTTOM_MARKER_RADIUS,
+            24
+        );
+        this.liveActorTopBottomMarkerArrowGeometry = createHorizontalFacingArrowGeometry(
+            LIVE_ACTOR_TOP_BOTTOM_MARKER_ARROW_LENGTH,
+            LIVE_ACTOR_TOP_BOTTOM_MARKER_RADIUS * 0.48
+        );
+        this.liveActorTopBottomMarkerMaterials = new Map();
+        this.liveActorTopBottomMarkerArrowMaterial = new THREE.MeshBasicMaterial({
+            color: 0xf8fafc,
+            transparent: true,
+            opacity: 0.94,
+            side: THREE.DoubleSide,
+            depthTest: false,
+            depthWrite: false,
+        });
         this.scene.add(this.liveActorBillboardGroup);
 
         this.collectableItemGroup = new THREE.Group();
@@ -2944,7 +2986,12 @@ export class KnightLoreStage0Renderer {
 
         const facingScores = this.computePlayerSpriteBillboardFacingScores({camera: this.camera});
         const selection = selectedSpriteBillboardFacingForView(this.activeViewPreset, facingScores);
-        if (!selection.selectedFacing) {
+        const topBottomActorMarkersVisible = (
+            this.activeViewPreset === 'top'
+            || this.activeViewPreset === 'bottom'
+        );
+        const specs = liveActorBillboardSpecsForRoom(room);
+        if (!selection.selectedFacing && !topBottomActorMarkersVisible) {
             this.lastLiveActorBillboardCount = 0;
             this.lastLiveActorBillboardTextureCount = 0;
             this.lastLiveActorBillboardWireframesVisible = false;
@@ -2952,18 +2999,68 @@ export class KnightLoreStage0Renderer {
             return;
         }
 
-        const specs = liveActorBillboardSpecsForRoom(room);
         this.clearLiveActorBillboards();
         this.lastLiveActorBillboardCount = 0;
         this.lastLiveActorBillboardTextureCount = 0;
-        this.lastLiveActorBillboardWireframesVisible = this.playerSpriteBillboardWireframeEnabled;
+        this.lastLiveActorBillboardWireframesVisible = topBottomActorMarkersVisible
+            ? false
+            : this.playerSpriteBillboardWireframeEnabled;
         specs.forEach(spec => {
-            const actorBillboard = this.createLiveActorBillboard(spec, selection.selectedFacing);
+            const actorBillboard = topBottomActorMarkersVisible
+                ? this.createLiveActorTopBottomMarker(spec)
+                : this.createLiveActorBillboard(spec, selection.selectedFacing);
             if (!actorBillboard) return;
             this.lastLiveActorBillboardCount += 1;
             this.lastLiveActorBillboardTextureCount += actorBillboard.userData.texturedHalfCount || 0;
             this.liveActorBillboardGroup.add(actorBillboard);
         });
+    }
+
+    createLiveActorTopBottomMarker(spec) {
+        if (!spec) return null;
+        const baseRecord = spec.lowerRecord || spec.topRecord;
+        if (!baseRecord) return null;
+        const basePosition = mapKnightLorePositionToScene(baseRecord.position, this.roomDimensions);
+        if (!basePosition) return null;
+
+        const actorFacing = resolveLiveActorFacing(spec);
+        const markerFacing = sceneFacingForLiveActorTopBottomMarker(actorFacing.facing) || 'north';
+        const markerGroup = new THREE.Group();
+        markerGroup.position.copy(basePosition.vector);
+        markerGroup.userData.actor = spec.actor;
+        markerGroup.userData.objectSlot = spec.objectSlot;
+        markerGroup.userData.lowerSlot = spec.lowerSlot;
+        markerGroup.userData.actorFacing = actorFacing.facing;
+        markerGroup.userData.markerFacing = markerFacing;
+        markerGroup.userData.actorFacingSource = actorFacing.source;
+        markerGroup.userData.topBottomActorMarker = true;
+        markerGroup.userData.texturedHalfCount = 0;
+
+        const disk = new THREE.Mesh(
+            this.liveActorTopBottomMarkerDiskGeometry,
+            this.liveActorTopBottomMarkerMaterialForActor(spec.actor)
+        );
+        disk.rotation.x = -Math.PI / 2;
+        disk.position.y = LIVE_ACTOR_TOP_BOTTOM_MARKER_HEIGHT;
+        disk.renderOrder = 32;
+        disk.userData.actor = spec.actor;
+        disk.userData.topBottomActorMarker = 'disk';
+        markerGroup.add(disk);
+
+        const arrow = new THREE.Mesh(
+            this.liveActorTopBottomMarkerArrowGeometry,
+            this.liveActorTopBottomMarkerArrowMaterial
+        );
+        arrow.position.y = LIVE_ACTOR_TOP_BOTTOM_MARKER_HEIGHT + 0.06;
+        arrow.rotation.y = rotationForFacing(markerFacing);
+        arrow.renderOrder = 33;
+        arrow.userData.actor = spec.actor;
+        arrow.userData.actorFacing = actorFacing.facing;
+        arrow.userData.markerFacing = markerFacing;
+        arrow.userData.topBottomActorMarker = 'arrow';
+        markerGroup.add(arrow);
+
+        return markerGroup;
     }
 
     createLiveActorBillboard(spec, selectedFacing) {
@@ -3070,6 +3167,24 @@ export class KnightLoreStage0Renderer {
             );
         }
         return this.liveActorBillboardMaterials.get(key);
+    }
+
+    liveActorTopBottomMarkerMaterialForActor(actor) {
+        const key = actor || 'unknown';
+        if (!this.liveActorTopBottomMarkerMaterials.has(key)) {
+            this.liveActorTopBottomMarkerMaterials.set(
+                key,
+                new THREE.MeshBasicMaterial({
+                    color: LIVE_ACTOR_BILLBOARD_COLORS[key] || 0xf8fafc,
+                    transparent: true,
+                    opacity: 0.82,
+                    side: THREE.DoubleSide,
+                    depthTest: false,
+                    depthWrite: false,
+                })
+            );
+        }
+        return this.liveActorTopBottomMarkerMaterials.get(key);
     }
 
     billboardNormalForFacing(facing) {
@@ -4574,11 +4689,15 @@ export class KnightLoreStage0Renderer {
             'Full 3D object proxies: ' + this.lastFull3DRecognizedObjectCount
                 + '/' + this.lastFull3DObjectCount
                 + ' recognized',
-            'Full 3D live actor billboards: ' + this.lastLiveActorBillboardCount
-                + ', textured quads '
-                + this.lastLiveActorBillboardTextureCount
-                + ', wireframes '
-                + (this.lastLiveActorBillboardWireframesVisible ? 'visible' : 'hidden'),
+            'Full 3D live actors: ' + this.lastLiveActorBillboardCount
+                + (
+                    this.activeViewPreset === 'top' || this.activeViewPreset === 'bottom'
+                        ? ', top/bottom markers'
+                        : ', textured quads '
+                            + this.lastLiveActorBillboardTextureCount
+                            + ', wireframes '
+                            + (this.lastLiveActorBillboardWireframesVisible ? 'visible' : 'hidden')
+                ),
             'Player proxy block XYZ: ' + [
                 PLAYER_PROXY_BLOCK_UNITS.x,
                 PLAYER_PROXY_BLOCK_UNITS.y,
@@ -7724,6 +7843,12 @@ export class KnightLoreStage0Renderer {
         this.liveActorBillboardMaterials.forEach(material => {
             material.dispose();
         });
+        this.liveActorTopBottomMarkerDiskGeometry.dispose();
+        this.liveActorTopBottomMarkerArrowGeometry.dispose();
+        this.liveActorTopBottomMarkerMaterials.forEach(material => {
+            material.dispose();
+        });
+        this.liveActorTopBottomMarkerArrowMaterial.dispose();
         this.playerSpriteBillboardGeometry.dispose();
         this.playerSpriteBillboardPlaneGeometry.dispose();
         this.playerSpriteBillboardFullGeometry.dispose();

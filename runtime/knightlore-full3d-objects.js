@@ -104,7 +104,7 @@ function normalizedSpriteId(spriteId) {
 }
 
 function material(color, opacity = 1) {
-    return new THREE.MeshBasicMaterial({
+    return new THREE.MeshLambertMaterial({
         color,
         transparent: opacity < 1,
         opacity,
@@ -837,6 +837,117 @@ function createSpellCycleBubbleModel(spriteId) {
     group.userData.full3dBlockSize = {x: 1, y: 1, z: 1};
     group.userData.full3dSource = 'spell cycle sprite, fixed translucent bubble distribution selected by sprite id';
     group.userData.full3dDistributionSpriteId = id;
+    return group;
+}
+
+export function createCauldronModel(opts = {}) {
+    const group = new THREE.Group();
+    const bodySize = blockUnitsToSceneSize({x: 1.48, y: 1.48, z: 1.08});
+    const bodyHeight = bodySize.height;
+    const maxRadius = Math.min(bodySize.width, bodySize.depth) * 0.46;
+    const ironMaterial = new THREE.MeshLambertMaterial({
+        color: 0x3f4752,
+        transparent: true,
+        opacity: 0.98,
+    });
+    const rimMaterial = new THREE.MeshLambertMaterial({color: 0x2f3742});
+    const brothBaseMaterial = new THREE.MeshBasicMaterial({
+        color: 0x0f766e,
+        transparent: true,
+        opacity: 0.9,
+        side: THREE.DoubleSide,
+    });
+    const logMaterial = new THREE.MeshLambertMaterial({color: 0x7c2d12});
+    const logEdgeMaterial = edgeMaterial(0x3f1f0f, 0.72);
+
+    // Lathe an inverted-Omega-like profile: narrow foot, swollen belly,
+    // tightened neck, and a slightly flared lip around the open broth surface.
+    const profile = [
+        new THREE.Vector2(maxRadius * 0.44, 0),
+        new THREE.Vector2(maxRadius * 0.62, bodyHeight * 0.08),
+        new THREE.Vector2(maxRadius * 0.88, bodyHeight * 0.28),
+        new THREE.Vector2(maxRadius, bodyHeight * 0.56),
+        new THREE.Vector2(maxRadius * 0.82, bodyHeight * 0.82),
+        new THREE.Vector2(maxRadius * 1.02, bodyHeight * 0.94),
+        new THREE.Vector2(maxRadius * 0.82, bodyHeight),
+    ];
+    const bodyGeometry = new THREE.LatheGeometry(profile, 48);
+    const body = new THREE.Mesh(bodyGeometry, ironMaterial);
+    body.position.y = blockUnitsToSceneSize({z: 0.16}).height;
+    group.add(body);
+
+    const rimRadius = maxRadius * 0.92;
+    const rimTube = Math.max(0.22, maxRadius * 0.075);
+    const rim = new THREE.Mesh(
+        new THREE.TorusGeometry(rimRadius, rimTube, 10, 48),
+        rimMaterial
+    );
+    rim.rotation.x = Math.PI / 2;
+    rim.position.y = body.position.y + bodyHeight;
+    group.add(rim);
+
+    const foot = new THREE.Mesh(
+        new THREE.TorusGeometry(maxRadius * 0.46, rimTube * 0.72, 8, 36),
+        rimMaterial
+    );
+    foot.rotation.x = Math.PI / 2;
+    foot.position.y = body.position.y + bodyHeight * 0.05;
+    group.add(foot);
+
+    const bodyEdges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(bodyGeometry, 28),
+        edgeMaterial(0x020617, 0.34)
+    );
+    bodyEdges.position.copy(body.position);
+    group.add(bodyEdges);
+
+    const logRadius = Math.max(0.3, blockUnitsToSceneSize({x: 0.1}).width * 0.44);
+    const logLength = Math.min(bodySize.width, bodySize.depth) * 0.95;
+    const logGeometry = new THREE.CylinderGeometry(logRadius, logRadius, logLength, 12, 1);
+    [
+        {x: 0, y: logRadius, z: -logRadius * 1.4, rz: Math.PI / 2, ry: 0.12},
+        {x: -logRadius * 1.2, y: logRadius * 1.16, z: logRadius * 1.1, rx: Math.PI / 2, ry: 0},
+        {x: logRadius * 1.2, y: logRadius * 0.84, z: logRadius * 0.5, rz: Math.PI / 2, ry: -Math.PI / 4},
+    ].forEach(logSpec => {
+        const log = new THREE.Mesh(logGeometry, logMaterial);
+        log.position.set(logSpec.x, logSpec.y, logSpec.z);
+        log.rotation.set(logSpec.rx || 0, logSpec.ry || 0, logSpec.rz || 0);
+        group.add(log);
+
+        const logEdges = new THREE.LineSegments(new THREE.EdgesGeometry(logGeometry), logEdgeMaterial);
+        logEdges.position.copy(log.position);
+        logEdges.rotation.copy(log.rotation);
+        group.add(logEdges);
+    });
+
+    const brothRadius = maxRadius * 0.72;
+    const brothGeometry = new THREE.CircleGeometry(brothRadius, 48);
+    const brothBase = new THREE.Mesh(brothGeometry, brothBaseMaterial);
+    brothBase.rotation.x = -Math.PI / 2;
+    brothBase.position.y = rim.position.y + 0.02;
+    group.add(brothBase);
+
+    if (opts.brothTexture) {
+        const brothTextureMaterial = new THREE.MeshBasicMaterial({
+            map: opts.brothTexture,
+            transparent: true,
+            opacity: 0.96,
+            alphaTest: 0.04,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+        });
+        const brothTexture = new THREE.Mesh(brothGeometry, brothTextureMaterial);
+        brothTexture.rotation.copy(brothBase.rotation);
+        brothTexture.position.copy(brothBase.position);
+        brothTexture.position.y += 0.03;
+        brothTexture.renderOrder = 18;
+        group.add(brothTexture);
+    }
+
+    group.userData.full3dKind = 'cauldron';
+    group.userData.full3dRecognized = true;
+    group.userData.full3dSource = 'static background 0x13 cauldron, lathed inverted-Omega profile with sprite 0x8E broth texture';
+    group.userData.full3dBlockSize = {x: 1.48, y: 1.48, z: 1.08};
     return group;
 }
 

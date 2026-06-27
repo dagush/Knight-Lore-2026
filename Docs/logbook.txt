@@ -1553,3 +1553,74 @@ Strict caveats:
 - The guard and wizard are still represented as two textured billboards, not true 3D meshes.
 - The fallback from remapped side to opposite/live sprite is a renderer robustness guard, not a semantic statement about the game data.
 - Ghosts have not yet been pulled into this pass; they should be treated as their own simpler actor class when needed.
+
+## 2026-06-27 - Final Full 3D Polish and Top/Bottom Actor Markers
+
+Context:
+
+- After completing the guard/wizard billboard pass, the remaining work was cosmetic and presentation-focused.
+- The goal was to improve the Full 3D scene without changing the already verified semantic decoding or billboard view policies.
+
+Cauldron model:
+
+- Replaced the simple cauldron placeholder with a more expressive Full 3D model:
+  - lathed/revolved dark-grey cauldron body, roughly following an inverted omega-like profile;
+  - separate rim and foot rings;
+  - small crossed log cylinders below it;
+  - a flat broth surface at the top.
+- Used sprite `0x8E` as the source for the broth texture and stretched it vertically before applying it to the surface.
+- Kept the cauldron positioned at the centre of room `0x88`, following the earlier decision that this fixed object should not chase unreliable static Y/depth coordinates.
+- Adjusted the cauldron material from black to dark grey so it reads better under the new Full 3D lighting.
+
+Lighting and materials:
+
+- Added a simple Full 3D lighting model:
+  - ambient light, so no object becomes unreadably dark;
+  - directional light from the upper south-west, matching the game-like viewpoint direction.
+- Switched the simple Full 3D object materials from unlit basic materials to Lambert-style materials where appropriate.
+- Kept special sprite/broth effects self-lit so they remain close to the original Spectrum look.
+- This is still intentionally shadow-free, matching the original game's visual logic.
+
+Top/bottom actor visibility:
+
+- Added top/bottom-only markers for live guards and the wizard.
+- The problem was that these actors are textured vertical quads, so they become essentially invisible in pure top and bottom views.
+- The chosen solution is deliberately simple:
+  - a small coloured disk marks the actor position;
+  - a small white arrow shows the actor nose/facing direction.
+- These markers are only used in Full 3D top/bottom views.
+- Normal Full 3D views still use the textured actor billboards.
+- Schematic mode remains separate.
+
+North/south marker correction:
+
+- Fixed a top/bottom marker direction bug where guard/wizard noses pointed to the opposite side when walking north or south.
+- The actor's semantic facing is still decoded as before.
+- Only the overhead marker arrow converts north/south before rotation, because actor facing is decoded in game Y-space while the marker arrow is drawn in scene Z-space.
+- East/west marker directions were left unchanged.
+
+Implementation notes:
+
+- Main edited files:
+  - `runtime/knightlore-full3d-objects.js`;
+  - `runtime/knightlore-full3d-renderer.js`;
+  - `runtime/semantic3d.js`;
+  - `static/knight-lore-workbench.html`.
+- The top/bottom actor marker path keeps both values in `userData`:
+  - decoded actor facing;
+  - scene marker facing.
+- Final cache key for this polish pass: `knightlore-actor-topbottom-ns-20260627a`.
+
+Verification:
+
+- Ran JavaScript syntax checks with the bundled Node runtime.
+- Ran focused `git diff --check` on the edited files.
+- Rebuilt with webpack.
+- Webpack still reports only the known bundle-size warnings.
+- Smoke-tested the workbench in the browser after the top/bottom marker addition.
+
+Strict caveats:
+
+- The top/bottom guard/wizard markers are pragmatic visibility aids, not recovered original game graphics.
+- The cauldron geometry is an interpretive Full 3D model, not Ricard's original OpenGL geometry.
+- The lighting is a renderer-level aesthetic layer. It should not be treated as evidence of original game lighting or shading.
