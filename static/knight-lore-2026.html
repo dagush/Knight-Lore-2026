@@ -62,8 +62,18 @@
             #snapshot-note p {
                 margin: 0;
             }
+            #snapshot-note p + p {
+                margin-top: 5px;
+            }
             #snapshot-note strong {
                 color: #111;
+            }
+            #snapshot-note a {
+                color: #1d4ed8;
+                text-decoration: none;
+            }
+            #snapshot-note a:hover {
+                text-decoration: underline;
             }
             #snapshot-note code {
                 padding: 1px 3px;
@@ -1232,6 +1242,10 @@
                 then run from that loaded game state.
                 The Spectrum view is the reference; the 3D view is an experimental
                 reconstruction and may contain visual bugs or approximations.
+            </p>
+            <p>
+                Source repository:
+                <a href="https://github.com/dagush/Knight-Lore-2026">dagush/Knight-Lore-2026</a>.
             </p>
         </footer>
         <div id="semantic-debug">
