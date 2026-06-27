@@ -10,7 +10,7 @@ Live page:
 
 https://dagush.github.io/Knight-Lore-2026/
 
-This is a rewrite/reinterpretation of the work originally done by Ricard
+This is a rewrite/reinterpretation of the work we originally did with Ricard
 Galvany in 2006. The original project, Knight Lore 2006, is here:
 
 https://ima.udg.edu/~dagush/Projects/KnightLore2006/
