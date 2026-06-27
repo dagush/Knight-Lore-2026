@@ -65,6 +65,13 @@
             #snapshot-note strong {
                 color: #111;
             }
+            #snapshot-note code {
+                padding: 1px 3px;
+                background: #e9e9e9;
+                border: 1px solid #d0d0d0;
+                border-radius: 3px;
+                font: 12px Menlo, Consolas, monospace;
+            }
             #emulator-column {
                 width: 640px;
             }
@@ -1220,8 +1227,11 @@
                 <strong>Load your own snapshot:</strong>
                 this public page does not include a Knight Lore game snapshot.
                 Use the emulator's <strong>Open file</strong> button to load your own compatible
-                `.z80`, `.szx`, `.sna`, or `.zip` snapshot; the original Spectrum view and
-                the 3D semantic renderer will start working from that loaded game state.
+                <code>.z80</code>, <code>.szx</code>, <code>.sna</code>, or <code>.zip</code>
+                snapshot. The original Spectrum view and the 3D semantic renderer will
+                then run from that loaded game state.
+                The Spectrum view is the reference; the 3D view is an experimental
+                reconstruction and may contain visual bugs or approximations.
             </p>
         </footer>
         <div id="semantic-debug">
