@@ -1,0 +1,1259 @@
+<!doctype html>
+<html>
+    <head>
+        <title>Knight Lore 2026</title>
+        <script src="jsspeccy/jsspeccy.js?v=knightlore-wrapup-userload-20260627a"></script>
+        <style>
+            body {
+                background-color: #444;
+                color: #111;
+                font-family: Arial, Helvetica, sans-serif;
+            }
+            #jsspeccy {
+                width: 640px;
+                background-color: white;
+            }
+            body.stage0-three #jsspeccy button[title="Start tape"],
+            body.stage0-three #jsspeccy button[title="Stop tape"] {
+                display: none !important;
+            }
+            #validation-workbench {
+                width: 1298px;
+                margin: auto;
+                display: flex;
+                align-items: flex-start;
+                gap: 16px;
+            }
+            body.hide-deferred-debug #validation-workbench {
+                width: 640px;
+            }
+            body.hide-deferred-debug.stage0-three #validation-workbench {
+                width: 1298px;
+            }
+            body.hide-deferred-debug #candidate-panel,
+            body.hide-deferred-debug #raw-memory-section,
+            body.hide-deferred-debug #selected-bytes-section {
+                display: none;
+            }
+            body.presentation-page #candidate-panel,
+            body.presentation-page #semantic-debug {
+                display: none;
+            }
+            #project-banner {
+                width: 1298px;
+                margin: 14px auto 12px;
+            }
+            #project-banner img {
+                display: block;
+                width: 100%;
+                height: auto;
+                image-rendering: pixelated;
+            }
+            #snapshot-note {
+                width: 1298px;
+                margin: 12px auto 18px;
+                padding: 10px 12px;
+                background: #f4f4f4;
+                border: 1px solid #aaa;
+                box-sizing: border-box;
+                color: #222;
+                font: 13px/1.45 Arial, Helvetica, sans-serif;
+            }
+            #snapshot-note p {
+                margin: 0;
+            }
+            #snapshot-note strong {
+                color: #111;
+            }
+            #emulator-column {
+                width: 640px;
+            }
+            #inventory-poke-panel {
+                display: flex;
+                align-items: center;
+                flex-wrap: wrap;
+                gap: 8px;
+                margin-top: 8px;
+                padding: 8px;
+                background: #f4f4f4;
+                border: 1px solid #aaa;
+                box-sizing: border-box;
+                font: 13px Arial, Helvetica, sans-serif;
+            }
+            #inventory-poke-panel input[type="text"] {
+                width: 76px;
+                padding: 3px 5px;
+                font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            }
+            #inventory-poke-panel .cheat-toggle {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                white-space: nowrap;
+            }
+            #inventory-poke-panel button {
+                min-height: 24px;
+                padding: 0 10px;
+                border: 1px solid #999;
+                border-radius: 4px;
+                background: #333;
+                color: white;
+                font: 12px Arial, Helvetica, sans-serif;
+                cursor: pointer;
+            }
+            #inventory-poke-panel button:disabled {
+                cursor: not-allowed;
+                opacity: 0.6;
+            }
+            #inventory-poke-status {
+                min-width: 260px;
+                color: #555;
+            }
+            #cheat-poke-status {
+                min-width: 220px;
+                color: #555;
+            }
+            #inventory-poke-status.is-error,
+            #cheat-poke-status.is-error {
+                color: #991b1b;
+            }
+            #inventory-poke-status.is-ok,
+            #cheat-poke-status.is-ok {
+                color: #166534;
+            }
+            #knight-lore-stage0 {
+                width: 640px;
+                min-height: 552px;
+                padding: 0;
+                background: #f4f4f4;
+                border: 1px solid #aaa;
+                box-sizing: content-box;
+            }
+            #knight-lore-stage0 .knight-lore-stage0-controls {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 8px;
+                background: #e8e8e8;
+                border-bottom: 1px solid #aaa;
+                box-sizing: border-box;
+            }
+            #knight-lore-stage0 select {
+                max-width: 100%;
+                font: 13px Arial, Helvetica, sans-serif;
+            }
+            #knight-lore-stage0 .knight-lore-render-mode-toggle {
+                display: inline-flex;
+                overflow: hidden;
+                border: 1px solid #999;
+                border-radius: 4px;
+                background: #f7f7f7;
+            }
+            #knight-lore-stage0 .knight-lore-render-mode-toggle button {
+                min-height: 24px;
+                padding: 0 9px;
+                border: 0;
+                border-right: 1px solid #aaa;
+                background: transparent;
+                color: #333;
+                font: 12px Arial, Helvetica, sans-serif;
+                cursor: pointer;
+            }
+            #knight-lore-stage0 .knight-lore-render-mode-toggle button:last-child {
+                border-right: 0;
+            }
+            #knight-lore-stage0 .knight-lore-render-mode-toggle button.is-active {
+                background: #333;
+                color: white;
+            }
+            #knight-lore-stage0 .knight-lore-render-mode-toggle button:disabled {
+                color: #888;
+                cursor: not-allowed;
+                opacity: 0.65;
+            }
+            #knight-lore-stage0 .knight-lore-dewarp-scale-control {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                min-width: 82px;
+                height: 24px;
+                padding: 0 6px;
+                border: 1px solid #aaa;
+                border-radius: 4px;
+                background: #f7f7f7;
+                color: #333;
+                font: 12px Arial, Helvetica, sans-serif;
+                box-sizing: border-box;
+            }
+            #knight-lore-stage0 .knight-lore-dewarp-scale-control.is-disabled {
+                color: #666;
+            }
+            #knight-lore-stage0 .knight-lore-dewarp-toggle {
+                display: inline-flex;
+                align-items: center;
+                gap: 3px;
+                white-space: nowrap;
+                cursor: pointer;
+            }
+            #knight-lore-stage0 .knight-lore-dewarp-toggle input {
+                margin: 0;
+            }
+            #knight-lore-stage0 .knight-lore-stage0-canvas {
+                position: relative;
+                width: 640px;
+                height: 480px;
+                background: #1b2026;
+            }
+            #knight-lore-stage0 canvas {
+                display: block;
+                width: 100%;
+                height: 100%;
+            }
+            #knight-lore-stage0 .knight-lore-direction-overlay {
+                pointer-events: none;
+                position: absolute;
+                inset: 0;
+                z-index: 2;
+                font: bold 12px Arial, Helvetica, sans-serif;
+                color: rgba(248, 250, 252, 0.92);
+                text-shadow:
+                    0 1px 2px rgba(0, 0, 0, 0.9),
+                    0 0 5px rgba(0, 0, 0, 0.8);
+            }
+            #knight-lore-stage0 .knight-lore-direction-label {
+                position: absolute;
+                padding: 2px 5px;
+                border-radius: 4px;
+                background: rgba(15, 23, 42, 0.48);
+                letter-spacing: 0;
+                transform: translate(-50%, -50%);
+            }
+            #knight-lore-stage0 .knight-lore-stage0-summary,
+            #knight-lore-stage2-diagnostics .knight-lore-stage0-summary {
+                width: 100%;
+                margin-top: 0;
+                padding: 8px;
+                white-space: pre;
+                background: white;
+                border: 1px solid #ccc;
+                box-sizing: border-box;
+                font-family: Menlo, Consolas, monospace;
+                font-size: 12px;
+                line-height: 1.45;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-comparison,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison {
+                padding: 8px;
+                background: #fafafa;
+                border-top: 1px solid #ccc;
+                box-sizing: border-box;
+                font-size: 11px;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-comparison-heading,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison-heading {
+                display: flex;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 6px;
+                color: #222;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-comparison-heading.is-secondary,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison-heading.is-secondary {
+                margin-top: 14px;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-note,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-note {
+                margin: 0 0 6px;
+                color: #555;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-note.is-warning,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-note.is-warning {
+                padding: 4px 6px;
+                background: #fff7ed;
+                color: #9a3412;
+                border: 1px solid #fed7aa;
+            }
+            #knight-lore-stage0 .knight-lore-sprite-texture-preview,
+            #knight-lore-stage2-diagnostics .knight-lore-sprite-texture-preview {
+                display: block;
+                max-width: 100%;
+                height: auto;
+                margin: 8px 0 10px;
+                border: 1px solid #94a3b8;
+                background: #0f172a;
+                image-rendering: pixelated;
+                box-sizing: border-box;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-comparison table,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison table {
+                width: 100%;
+                border-collapse: collapse;
+                background: white;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-comparison th,
+            #knight-lore-stage0 .knight-lore-stage2-comparison td,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison th,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison td {
+                border: 1px solid #d0d0d0;
+                padding: 3px 4px;
+                text-align: left;
+                vertical-align: top;
+                white-space: nowrap;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-comparison th,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison th {
+                background: #e7e7e7;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-comparison .mono,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison .mono {
+                font-family: Menlo, Consolas, monospace;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-comparison .is-selected-byte,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison .is-selected-byte {
+                background: #dbeafe;
+                color: #1d4ed8;
+                font-weight: 700;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-comparison td.is-exact,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison td.is-exact {
+                background: #dcfce7;
+                color: #166534;
+                font-weight: 700;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-comparison td.is-selected-byte,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison td.is-selected-byte {
+                background: #dbeafe;
+                color: #1d4ed8;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-comparison tr.is-exact td,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison tr.is-exact td {
+                color: #334155;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-comparison tr.is-mismatch td,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison tr.is-mismatch td {
+                background: #fff7ed;
+                color: #9a3412;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-comparison tr.is-missing-dynamic td,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison tr.is-missing-dynamic td {
+                background: #fef2f2;
+                color: #991b1b;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-comparison tr.is-extra-dynamic td,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison tr.is-extra-dynamic td {
+                background: #f0f9ff;
+                color: #075985;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-comparison tr.is-cauldron td,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison tr.is-cauldron td {
+                background: #f0fdfa;
+                color: #115e59;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-comparison tr.is-wizard td,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison tr.is-wizard td {
+                background: #faf5ff;
+                color: #6b21a8;
+            }
+            #knight-lore-stage0 .knight-lore-stage2-comparison tr.is-room-colour-changed td,
+            #knight-lore-stage2-diagnostics .knight-lore-stage2-comparison tr.is-room-colour-changed td {
+                background: #fffbeb;
+                color: #92400e;
+            }
+            #candidate-panel {
+                width: 464px;
+                max-height: 552px;
+                overflow: auto;
+                padding: 10px;
+                background: #f4f4f4;
+                border: 1px solid #aaa;
+                box-sizing: border-box;
+                font-size: 12px;
+            }
+            #candidate-panel h2 {
+                margin: 0 0 10px;
+                font-size: 16px;
+            }
+            #candidate-panel label {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                margin-right: 10px;
+            }
+            #candidate-panel table {
+                width: 100%;
+                margin-top: 8px;
+                border-collapse: collapse;
+                background: white;
+            }
+            #candidate-panel th,
+            #candidate-panel td {
+                border: 1px solid #ccc;
+                padding: 3px 5px;
+                text-align: left;
+                white-space: nowrap;
+            }
+            #candidate-panel th {
+                background: #ddd;
+            }
+            #semantic-debug {
+                width: 1298px;
+                margin: 16px auto;
+                padding: 12px;
+                background: #f4f4f4;
+                border: 1px solid #aaa;
+                box-sizing: border-box;
+                font-size: 13px;
+            }
+            #semantic-debug h2 {
+                margin: 0 0 10px;
+                font-size: 18px;
+            }
+            #semantic-debug h3 {
+                margin: 14px 0 6px;
+                font-size: 14px;
+            }
+            #semantic-debug table {
+                width: 100%;
+                border-collapse: collapse;
+                background: white;
+            }
+            #semantic-debug th,
+            #semantic-debug td {
+                border: 1px solid #ccc;
+                padding: 4px 6px;
+                text-align: left;
+                vertical-align: top;
+            }
+            #semantic-debug th {
+                background: #ddd;
+            }
+            #semantic-debug .mono {
+                font-family: Menlo, Consolas, monospace;
+            }
+            #semantic-raw-dump td {
+                white-space: pre;
+            }
+            #semantic-validation-overlay {
+                pointer-events: none;
+                z-index: 20;
+            }
+        </style>
+        <script>
+            let semanticValidationOverlay = null;
+            let semanticValidationCtx = null;
+            let showPlayerValidation = false;
+            let showSelectedCandidateValidation = true;
+            let selectedCandidateIndexes = new Set();
+            let candidateRowCount = -1;
+            let latestSemanticFrame = null;
+            let semanticFrameCounter = 0;
+            const HEAD_MARKER_Y_OFFSET = -6;
+            const HORIZONTAL_PLANE_SCALE = 2;
+            const HIGH_RES_ORIGIN = 72;
+            const HIGH_RES_SCREEN_Z = 128;
+            const KNIGHT_LORE_POKE_ADDRESS_BASE = 0x0000;
+            const KNIGHT_LORE_INVENTORY_SLOT_1_ADDRESS = 23516;
+            const KNIGHT_LORE_POKE_PRESETS = {
+                easyMode: [
+                    {address: 24731, value: 209, label: 'easy mode 1'},
+                    {address: 24732, value: 238, label: 'easy mode 2'},
+                    {address: 24733, value: 63, label: 'easy mode 3'},
+                ],
+                infiniteLives: [
+                    {address: 53567, value: 201, label: 'infinite lives'},
+                ],
+                infiniteTime: [
+                    {address: 50084, value: 201, label: 'infinite time'},
+                ],
+                immunity: [
+                    {address: 47196, value: 201, label: 'immunity'},
+                ],
+            };
+            const KNIGHT_LORE_CHEAT_CONTROLS = {
+                infiniteLives: {
+                    label: 'Infinite lives',
+                    enabled: true,
+                    pokes: KNIGHT_LORE_POKE_PRESETS.infiniteLives,
+                },
+                immunity: {
+                    label: 'Immunity',
+                    enabled: true,
+                    pokes: KNIGHT_LORE_POKE_PRESETS.immunity,
+                },
+            };
+            const KNIGHT_LORE_CHEAT_ORIGINAL_BYTES = new Map();
+            const KNIGHT_LORE_CHEAT_ADDRESS_SET = new Set(
+                Object.values(KNIGHT_LORE_CHEAT_CONTROLS)
+                    .flatMap(cheat => cheat.pokes.map(poke => poke.address & 0xffff))
+            );
+            const KNIGHT_LORE_ACTIVE_POKES = Object.values(KNIGHT_LORE_CHEAT_CONTROLS)
+                .filter(cheat => cheat.enabled)
+                .flatMap(cheat => cheat.pokes);
+
+            function hex(value, digits) {
+                return value.toString(16).toUpperCase().padStart(digits, '0');
+            }
+
+            function parsePokeByteInput(rawValue) {
+                const raw = String(rawValue || '').trim();
+                if (raw === '') return null;
+
+                let normalized = raw;
+                let radix = 10;
+                if (/^0x[0-9a-f]+$/i.test(normalized)) {
+                    normalized = normalized.slice(2);
+                    radix = 16;
+                } else if (/^&[0-9a-f]+$/i.test(normalized) || /^\$[0-9a-f]+$/i.test(normalized)) {
+                    normalized = normalized.slice(1);
+                    radix = 16;
+                } else if (/^[0-9a-f]+h$/i.test(normalized)) {
+                    normalized = normalized.slice(0, -1);
+                    radix = 16;
+                } else if (/^[0-9a-f]*[a-f][0-9a-f]*$/i.test(normalized)) {
+                    radix = 16;
+                } else if (!/^[0-9]+$/.test(normalized)) {
+                    return null;
+                }
+
+                const value = Number.parseInt(normalized, radix);
+                if (!Number.isInteger(value) || value < 0 || value > 0xff) return null;
+                return value;
+            }
+
+            function formatPokeByte(value) {
+                return '0x' + hex(value, 2) + ' (' + value + ')';
+            }
+
+            function setInventoryPokeStatus(message, state) {
+                const status = document.getElementById('inventory-poke-status');
+                if (!status) return;
+                status.textContent = message;
+                status.className = state ? 'is-' + state : '';
+            }
+
+            function setCheatPokeStatus(message, state) {
+                const status = document.getElementById('cheat-poke-status');
+                if (!status) return;
+                status.textContent = message;
+                status.className = state ? 'is-' + state : '';
+            }
+
+            function isPresentationPage() {
+                return document.body.classList.contains('presentation-page');
+            }
+
+            function rememberCheatOriginalBytes(payload) {
+                if (!payload || !Array.isArray(payload.results)) return;
+                payload.results.forEach(result => {
+                    const address = Number(result && result.address);
+                    const before = Number(result && result.before);
+                    if (
+                        Number.isFinite(address)
+                        && Number.isFinite(before)
+                        && KNIGHT_LORE_CHEAT_ADDRESS_SET.has(address & 0xffff)
+                        && !KNIGHT_LORE_CHEAT_ORIGINAL_BYTES.has(address & 0xffff)
+                    ) {
+                        KNIGHT_LORE_CHEAT_ORIGINAL_BYTES.set(address & 0xffff, before & 0xff);
+                    }
+                });
+            }
+
+            function cheatRestorePokes(cheatKey) {
+                const cheat = KNIGHT_LORE_CHEAT_CONTROLS[cheatKey];
+                if (!cheat) return null;
+
+                const restorePokes = [];
+                for (const poke of cheat.pokes) {
+                    const address = poke.address & 0xffff;
+                    if (!KNIGHT_LORE_CHEAT_ORIGINAL_BYTES.has(address)) return null;
+                    restorePokes.push({
+                        address,
+                        value: KNIGHT_LORE_CHEAT_ORIGINAL_BYTES.get(address),
+                        label: 'restore ' + poke.label,
+                    });
+                }
+                return restorePokes;
+            }
+
+            function bindCheatPokeControls() {
+                const checkboxes = [...document.querySelectorAll('[data-cheat-key]')];
+                if (checkboxes.length === 0) return;
+
+                checkboxes.forEach(checkbox => {
+                    const cheatKey = checkbox.dataset.cheatKey;
+                    const cheat = KNIGHT_LORE_CHEAT_CONTROLS[cheatKey];
+                    if (!cheat) return;
+                    checkbox.checked = cheat.enabled;
+                    checkbox.addEventListener('change', () => {
+                        const nextEnabled = checkbox.checked;
+                        if (!emu || typeof emu.applyPokes !== 'function') {
+                            checkbox.checked = cheat.enabled;
+                            setCheatPokeStatus('Emulator is not ready yet.', 'error');
+                            return;
+                        }
+
+                        const pokes = nextEnabled ? cheat.pokes : cheatRestorePokes(cheatKey);
+                        if (!pokes) {
+                            checkbox.checked = cheat.enabled;
+                            setCheatPokeStatus('Cannot restore ' + cheat.label + ': original byte not captured.', 'error');
+                            return;
+                        }
+
+                        checkbox.disabled = true;
+                        setCheatPokeStatus((nextEnabled ? 'Enabling ' : 'Disabling ') + cheat.label + '...', '');
+                        emu.applyPokes(pokes).then(payload => {
+                            rememberCheatOriginalBytes(payload);
+                            const ok = payload
+                                && Array.isArray(payload.results)
+                                && payload.results.length === pokes.length
+                                && payload.results.every(result => result.applied && result.readbackMatches);
+                            if (!ok) {
+                                checkbox.checked = cheat.enabled;
+                                setCheatPokeStatus('Cheat poke failed: ' + cheat.label + '.', 'error');
+                                return;
+                            }
+
+                            cheat.enabled = nextEnabled;
+                            checkbox.checked = nextEnabled;
+                            setCheatPokeStatus(
+                                cheat.label + (nextEnabled ? ' enabled.' : ' disabled.'),
+                                'ok'
+                            );
+                        }).catch(error => {
+                            checkbox.checked = cheat.enabled;
+                            setCheatPokeStatus('Cheat poke failed: ' + error.message, 'error');
+                        }).finally(() => {
+                            checkbox.disabled = false;
+                        });
+                    });
+                });
+
+                setCheatPokeStatus('Infinite lives and immunity enabled.', 'ok');
+            }
+
+            function bindInventoryPokeControl() {
+                const form = document.getElementById('inventory-poke-panel');
+                const input = document.getElementById('inventory-item-code');
+                const button = document.getElementById('send-inventory-item-code');
+                if (!form || !input || !button) return;
+
+                form.addEventListener('submit', event => {
+                    event.preventDefault();
+                    const value = parsePokeByteInput(input.value);
+                    if (value === null) {
+                        setInventoryPokeStatus('Enter a byte value: decimal, 0xNN, &NN, $NN, or NNh.', 'error');
+                        input.focus();
+                        return;
+                    }
+                    if (!emu || typeof emu.applyPokes !== 'function') {
+                        setInventoryPokeStatus('Emulator is not ready yet.', 'error');
+                        return;
+                    }
+
+                    button.disabled = true;
+                    setInventoryPokeStatus('Sending ' + formatPokeByte(value) + '...', '');
+                    emu.applyPokes([{
+                        address: KNIGHT_LORE_INVENTORY_SLOT_1_ADDRESS,
+                        value,
+                        label: 'inventory slot 1 item code',
+                    }]).then(payload => {
+                        const result = payload && payload.results ? payload.results[0] : null;
+                        if (!result || !result.applied) {
+                            setInventoryPokeStatus('Poke failed.', 'error');
+                            return;
+                        }
+                        const address = '0x' + hex(result.address, 4);
+                        const before = result.before === undefined ? '--' : formatPokeByte(result.before);
+                        const after = result.after === undefined ? '--' : formatPokeByte(result.after);
+                        const state = result.readbackMatches ? 'ok' : 'error';
+                        const note = result.readbackMatches ? 'Applied' : 'Readback mismatch';
+                        setInventoryPokeStatus(note + ' at ' + address + ': ' + before + ' -> ' + after, state);
+                    }).catch(error => {
+                        setInventoryPokeStatus('Poke failed: ' + error.message, 'error');
+                    }).finally(() => {
+                        button.disabled = false;
+                    });
+                });
+            }
+
+            function readSemanticByte(frame, address) {
+                const offset = address - frame.memoryStart;
+                if (offset < 0 || offset >= frame.semanticMemory.length) return null;
+                return frame.semanticMemory[offset];
+            }
+
+            function readSemanticBytes(frame, startAddress, length) {
+                const bytes = [];
+                for (let i = 0; i < length; i++) {
+                    bytes.push(readSemanticByte(frame, startAddress + i));
+                }
+                return bytes;
+            }
+
+            function formatByte(value) {
+                return value === null ? '--' : '0x' + hex(value, 2);
+            }
+
+            function formatPosition(position) {
+                if (!position) return '(--, --, --)';
+                return '(' + position.x + ', ' + position.y + ', ' + position.z + ')';
+            }
+
+            function toHighResolutionPosition(position, subcell) {
+                if (
+                    !position
+                    || position.x === null
+                    || position.y === null
+                    || position.z === null
+                ) {
+                    return null;
+                }
+
+                subcell = subcell || {};
+                return {
+                    x: position.x * 16 + (subcell.x || 0) * 8 + HIGH_RES_ORIGIN,
+                    y: position.y * 16 + (subcell.y || 0) * 8 + HIGH_RES_ORIGIN,
+                    z: position.z * 12 + (subcell.z || 0) * 4 + HIGH_RES_SCREEN_Z,
+                };
+            }
+
+            function fallbackKnightLoreScene(frame) {
+                const selectedByteSpecs = [
+                    ['player.body.x', 0x5c09],
+                    ['player.body.y', 0x5c0a],
+                    ['player.body.z', 0x5c0b],
+                    ['player.body.mirrorFlag', 0x5c0f],
+                    ['room.size.x', 0x5bab],
+                    ['room.size.y', 0x5bac],
+                    ['room.colourAttribute', 0x5bad],
+                    ['room.size.z', 0x5bae],
+                    ['room.id', 0x5c10],
+                    ['player.head.x', 0x5c20],
+                    ['player.head.y', 0x5c2a],
+                    ['player.head.z', 0x5c2b],
+                    ['player.head.mirrorFlag', 0x5c2f],
+                    ['player.head.sprite', 0x5c41],
+                    ['player.body.sprite', 0x5c45],
+                    ['room.dynamicStart', 0x5c88],
+                ];
+                const read = address => readSemanticByte(frame, address);
+                const body = {x: read(0x5c09), y: read(0x5c0a), z: read(0x5c0b)};
+                const head = {x: read(0x5c20), y: read(0x5c2a), z: read(0x5c2b)};
+                const headOverlayPosition = {x: read(0x5c29), y: read(0x5c2a), z: read(0x5c2b)};
+                return {
+                    player: {
+                        body: Object.assign({}, body, {screenPosition: body}),
+                        head: Object.assign({}, head, {
+                            screenPosition: headOverlayPosition,
+                            highResolutionPosition: toHighResolutionPosition(head),
+                            semanticPosition: head,
+                            renderPositionCandidate: headOverlayPosition,
+                            overlayPosition: headOverlayPosition,
+                            renderPositionSource: '0x5C29,0x5C2A,0x5C2B',
+                        }),
+                        orientation: {
+                            label: 'unknown',
+                            mirrored: read(0x5c0f) >= 0x4c,
+                            mirrorMeaning: 'direction axis is selected by flag >= 0x4c',
+                            directionAxisThreshold: 0x4c,
+                            mirrorFlagsConsistent: read(0x5c0f) === read(0x5c2f),
+                            spriteMirrorKey: [
+                                formatByte(read(0x5c41)),
+                                formatByte(read(0x5c45)),
+                                formatByte(read(0x5c0f)),
+                                formatByte(read(0x5c2f)),
+                            ].join(':'),
+                            visualFacing: null,
+                            visualFacingSource: 'fallback parser does not classify sprite/mirror combinations',
+                            bodyMirrorFlag: read(0x5c0f),
+                            headMirrorFlag: read(0x5c2f),
+                            headSprite: read(0x5c41),
+                            bodySprite: read(0x5c45),
+                            state: {
+                                label: 'unclassified',
+                                source: 'sprite table pending validation',
+                            },
+                        },
+                    },
+                    room: {
+                        id: read(0x5c10),
+                        colourAttribute: read(0x5bad),
+                        color: read(0x5bad),
+                        size: {
+                            x: read(0x5bab),
+                            y: read(0x5bac),
+                            z: read(0x5bae),
+                        },
+                        staticCache: frame.knightLoreStaticMemory ? {
+                            memoryStart: frame.knightLoreStaticMemory.memoryStart,
+                            memoryEnd: frame.knightLoreStaticMemory.memoryEnd,
+                            byteLength: frame.knightLoreStaticMemory.byteLength,
+                            ranges: frame.knightLoreStaticMemory.ranges,
+                        } : null,
+                        sprites: [],
+                    },
+                    raw: {
+                        selectedBytes: selectedByteSpecs
+                            .map(([key, address]) => ({
+                                key,
+                                address,
+                                value: read(address),
+                            }))
+                            .sort((a, b) => a.address - b.address),
+                    },
+                };
+            }
+
+            function getKnightLoreScene(frame) {
+                return frame.knightLoreScene || fallbackKnightLoreScene(frame);
+            }
+
+            function inferOrientation(frame) {
+                const orientation = getKnightLoreScene(frame).player.orientation;
+                const mirrored = orientation.mirrored ? 'mirrored/rotated variant' : 'base variant';
+
+                return [
+                    mirrored,
+                    'headSprite=' + formatByte(orientation.headSprite),
+                    'bodySprite=' + formatByte(orientation.bodySprite),
+                    'bodyMirror=' + formatByte(orientation.bodyMirrorFlag),
+                    'headMirror=' + formatByte(orientation.headMirrorFlag),
+                ].join(', ');
+            }
+
+            function updateDecodedTable(frame) {
+                const scene = getKnightLoreScene(frame);
+                const room = scene.room || {};
+                const body = scene.player.body;
+                const head = scene.player.head;
+                const staticCache = room.staticCache || frame.knightLoreStaticMemory || null;
+                const rows = [
+                    ['Semantic frames', String(frame.semanticFrameCounter || 0)],
+                    ['PC', '0x' + hex(frame.pc, 4)],
+                    ['T-states', String(frame.tstates)],
+                    ['Room id', formatByte(room.id)],
+                    ['Room colour/attribute', formatByte(room.colourAttribute)],
+                    ['Room size bytes XYZ', formatPosition(room.size)],
+                    ['Static cache', staticCache ? String(staticCache.byteLength) + ' bytes' : 'not loaded'],
+                    ['Body RAM position', formatPosition(body)],
+                    ['Body screen position', formatPosition(body.screenPosition)],
+                    ['Head RAM position', formatPosition(head)],
+                    ['Head screen position', formatPosition(head.screenPosition)],
+                    ['Head render candidate', formatPosition(head.renderPositionCandidate)],
+                    ['Head full formula position', formatPosition(head.highResolutionPosition)],
+                    ['Orientation components', inferOrientation(frame)],
+                    ['Sprite/mirror key', scene.player.orientation.spriteMirrorKey || '--'],
+                    ['Player state', scene.player.orientation.state ? scene.player.orientation.state.label : 'unclassified'],
+                    ['Dynamic sprite records', String(scene.room.sprites.length)],
+                    ['Registers', frame.registers.map(value => '0x' + hex(value, 4)).join(' ')],
+                ];
+                document.getElementById('semantic-decoded').innerHTML = rows.map(row => (
+                    '<tr><th>' + row[0] + '</th><td class="mono">' + row[1] + '</td></tr>'
+                )).join('');
+            }
+
+            function updateSelectedBytesTable(frame) {
+                document.getElementById('semantic-selected-bytes').innerHTML = getKnightLoreScene(frame).raw.selectedBytes
+                    .slice()
+                    .sort((a, b) => a.address - b.address)
+                    .map(item => {
+                    return (
+                        '<tr>' +
+                        '<td class="mono">0x' + hex(item.address, 4) + '</td>' +
+                        '<td>' + item.key + '</td>' +
+                        '<td class="mono">' + formatByte(item.value) + '</td>' +
+                        '<td class="mono">' + (item.value === null ? '--' : item.value) + '</td>' +
+                        '</tr>'
+                    );
+                }).join('');
+            }
+
+            function updateRawDump(frame) {
+                const rows = [];
+                for (let address = 0x5c00; address <= 0x5c90; address += 16) {
+                    const bytes = readSemanticBytes(frame, address, 16);
+                    rows.push(
+                        '<tr>' +
+                        '<th class="mono">0x' + hex(address, 4) + '</th>' +
+                        '<td class="mono">' + bytes.map(formatByte).join(' ') + '</td>' +
+                        '</tr>'
+                    );
+                }
+                document.getElementById('semantic-raw-dump').innerHTML = rows.join('');
+            }
+
+            function projectKnightLorePoint(point) {
+                point = point && point.screenPosition ? point.screenPosition : point;
+                if (
+                    !point
+                    || point.x === null
+                    || point.y === null
+                    || point.z === null
+                ) {
+                    return null;
+                }
+
+                const worldX = point.y;
+                const worldY = point.x;
+
+                return {
+                    x: 160 + ((worldX + worldY) - 256) * 0.5 * HORIZONTAL_PLANE_SCALE,
+                    y: 120 + (worldY - worldX) * 0.25 * HORIZONTAL_PLANE_SCALE - (point.z - 128) * 0.5,
+                };
+            }
+
+            function setupValidationOverlay() {
+                if (semanticValidationOverlay) return true;
+
+                const canvas = document.querySelector('#jsspeccy canvas');
+                if (!canvas || !canvas.parentElement) return false;
+
+                const overlay = document.createElement('canvas');
+                overlay.id = 'semantic-validation-overlay';
+                overlay.width = 320;
+                overlay.height = 240;
+                overlay.style.position = 'absolute';
+                overlay.style.left = canvas.offsetLeft + 'px';
+                overlay.style.top = canvas.offsetTop + 'px';
+                overlay.style.width = canvas.clientWidth + 'px';
+                overlay.style.height = canvas.clientHeight + 'px';
+
+                canvas.parentElement.appendChild(overlay);
+                semanticValidationOverlay = overlay;
+                semanticValidationCtx = overlay.getContext('2d');
+                return true;
+            }
+
+            function drawCross(ctx, point, color, label) {
+                if (!point) return;
+                ctx.strokeStyle = color;
+                ctx.fillStyle = color;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(point.x - 5, point.y);
+                ctx.lineTo(point.x + 5, point.y);
+                ctx.moveTo(point.x, point.y - 5);
+                ctx.lineTo(point.x, point.y + 5);
+                ctx.stroke();
+                ctx.fillText(label, point.x + 7, point.y - 7);
+            }
+
+            function drawSpriteRecord(ctx, sprite) {
+                const point = projectKnightLorePoint(sprite.screenPosition || sprite.position);
+                if (!point) return;
+
+                ctx.strokeStyle = 'rgba(255, 232, 80, 0.95)';
+                ctx.fillStyle = 'rgba(255, 232, 80, 0.95)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(point.x, point.y - 5);
+                ctx.lineTo(point.x + 5, point.y);
+                ctx.lineTo(point.x, point.y + 5);
+                ctx.lineTo(point.x - 5, point.y);
+                ctx.closePath();
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(point.x - 7, point.y);
+                ctx.lineTo(point.x + 7, point.y);
+                ctx.moveTo(point.x, point.y - 7);
+                ctx.lineTo(point.x, point.y + 7);
+                ctx.stroke();
+                ctx.fillText(hex(sprite.spriteId, 2), point.x + 8, point.y - 8);
+            }
+
+            function candidateSummary(sprite) {
+                return {
+                    address: '0x' + hex(sprite.address, 4),
+                    id: '0x' + hex(sprite.spriteId, 2),
+                    position: (
+                        [sprite.position.x, sprite.position.y, sprite.position.z].join(', ')
+                        + ' -> '
+                        + (sprite.screenPosition
+                            ? [sprite.screenPosition.x, sprite.screenPosition.y, sprite.screenPosition.z].join(', ')
+                            : '--')
+                    ),
+                    dimensions: [
+                        sprite.dimensions.x,
+                        sprite.dimensions.y,
+                        sprite.dimensions.z,
+                    ].join(', '),
+                    raw: sprite.raw.map(value => hex(value, 2)).join(' '),
+                };
+            }
+
+            function updateCandidatePanel(frame) {
+                const scene = getKnightLoreScene(frame);
+                const selectAllCheckbox = document.getElementById('candidate-select-all');
+                document.getElementById('candidate-count').textContent = String(scene.room.sprites.length);
+                selectedCandidateIndexes = new Set(
+                    [...selectedCandidateIndexes].filter(index => index < scene.room.sprites.length)
+                );
+
+                if (candidateRowCount !== scene.room.sprites.length) {
+                    document.getElementById('candidate-records').innerHTML = scene.room.sprites.map((sprite, index) => (
+                        '<tr>' +
+                        '<td><input type="checkbox" data-candidate-index="' + index + '"></td>' +
+                        '<td class="mono" data-field="index"></td>' +
+                        '<td class="mono" data-field="address"></td>' +
+                        '<td class="mono" data-field="id"></td>' +
+                        '<td class="mono" data-field="position"></td>' +
+                        '<td class="mono" data-field="dimensions"></td>' +
+                        '<td class="mono" data-field="raw"></td>' +
+                        '</tr>'
+                    )).join('');
+                    candidateRowCount = scene.room.sprites.length;
+                }
+
+                const rows = document.getElementById('candidate-records').querySelectorAll('tr');
+                scene.room.sprites.forEach((sprite, index) => {
+                    const summary = candidateSummary(sprite);
+                    const row = rows[index];
+                    row.querySelector('input').checked = selectedCandidateIndexes.has(index);
+                    row.querySelector('[data-field="index"]').textContent = index;
+                    row.querySelector('[data-field="address"]').textContent = summary.address;
+                    row.querySelector('[data-field="id"]').textContent = summary.id;
+                    row.querySelector('[data-field="position"]').textContent = summary.position;
+                    row.querySelector('[data-field="dimensions"]').textContent = summary.dimensions;
+                    row.querySelector('[data-field="raw"]').textContent = summary.raw;
+                });
+
+                selectAllCheckbox.checked = (
+                    scene.room.sprites.length > 0
+                    && selectedCandidateIndexes.size === scene.room.sprites.length
+                );
+                selectAllCheckbox.indeterminate = (
+                    selectedCandidateIndexes.size > 0
+                    && selectedCandidateIndexes.size < scene.room.sprites.length
+                );
+            }
+
+            function updateValidationOverlay(frame) {
+                if (!setupValidationOverlay()) return;
+
+                const scene = getKnightLoreScene(frame);
+                const ctx = semanticValidationCtx;
+                ctx.clearRect(0, 0, 320, 240);
+                ctx.font = '10px Menlo, Consolas, monospace';
+                ctx.textBaseline = 'top';
+
+                if (showSelectedCandidateValidation) {
+                    for (const index of selectedCandidateIndexes) {
+                        const sprite = scene.room.sprites[index];
+                        if (sprite) drawSpriteRecord(ctx, sprite);
+                    }
+                }
+
+                const bodyPoint = projectKnightLorePoint(scene.player.body);
+                const headPoint = projectKnightLorePoint(scene.player.head);
+                if (headPoint) {
+                    headPoint.y += HEAD_MARKER_Y_OFFSET;
+                }
+                if (showPlayerValidation && bodyPoint && headPoint) {
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+                    ctx.beginPath();
+                    ctx.moveTo(bodyPoint.x, bodyPoint.y);
+                    ctx.lineTo(headPoint.x, headPoint.y);
+                    ctx.stroke();
+                }
+                if (showPlayerValidation) {
+                    drawCross(ctx, bodyPoint, '#00ffff', 'body');
+                    drawCross(ctx, headPoint, '#ff70f0', 'head');
+                }
+            }
+
+            function updateDebugPanels(frame) {
+                updateDecodedTable(frame);
+                updateSelectedBytesTable(frame);
+                updateRawDump(frame);
+                updateCandidatePanel(frame);
+            }
+
+            function startEmulator() {
+                const presentationPage = isPresentationPage();
+                let lastDebugPanelUpdateTime = 0;
+                let lastOverlayUpdateTime = 0;
+                let latestCandidateCount = 0;
+                if (!presentationPage) {
+                    document.getElementById('show-player-validation').addEventListener('change', event => {
+                        showPlayerValidation = event.target.checked;
+                        if (latestSemanticFrame) updateValidationOverlay(latestSemanticFrame);
+                    });
+                    document.getElementById('show-candidate-validation').addEventListener('change', event => {
+                        showSelectedCandidateValidation = event.target.checked;
+                        if (latestSemanticFrame) updateValidationOverlay(latestSemanticFrame);
+                    });
+                    document.getElementById('candidate-select-all').addEventListener('change', event => {
+                        selectedCandidateIndexes = new Set();
+                        if (event.target.checked) {
+                            for (let i = 0; i < latestCandidateCount; i++) {
+                                selectedCandidateIndexes.add(i);
+                            }
+                        }
+                        if (latestSemanticFrame) {
+                            updateCandidatePanel(latestSemanticFrame);
+                            updateValidationOverlay(latestSemanticFrame);
+                        }
+                    });
+                    document.getElementById('candidate-records').addEventListener('change', event => {
+                        const index = event.target.dataset.candidateIndex;
+                        if (index === undefined) return;
+                        const numericIndex = parseInt(index, 10);
+                        if (event.target.checked) {
+                            selectedCandidateIndexes.add(numericIndex);
+                        } else {
+                            selectedCandidateIndexes.delete(numericIndex);
+                        }
+                        if (latestSemanticFrame) {
+                            updateCandidatePanel(latestSemanticFrame);
+                            updateValidationOverlay(latestSemanticFrame);
+                        }
+                    });
+                }
+                emu = JSSpeccy(document.getElementById('jsspeccy'), {
+                    zoom: 2,
+                    sandbox: false,
+                    pokes: KNIGHT_LORE_ACTIVE_POKES,
+                    pokeAddressBase: KNIGHT_LORE_POKE_ADDRESS_BASE,
+                    knightLoreStage0Container: document.getElementById('knight-lore-stage0'),
+                    knightLoreStage0DiagnosticsContainer: document.getElementById('knight-lore-stage2-diagnostics'),
+                    onPokesApplied: payload => {
+                        rememberCheatOriginalBytes(payload);
+                    },
+                    onSemanticFrame: frame => {
+                        semanticFrameCounter += 1;
+                        frame.semanticFrameCounter = semanticFrameCounter;
+                        latestSemanticFrame = frame;
+                        latestCandidateCount = getKnightLoreScene(frame).room.sprites.length;
+                        if (!presentationPage) {
+                            const now = performance.now();
+                            if (now - lastOverlayUpdateTime > 100) {
+                                updateValidationOverlay(frame);
+                                lastOverlayUpdateTime = now;
+                            }
+                            if (now - lastDebugPanelUpdateTime > 500) {
+                                updateDebugPanels(frame);
+                                lastDebugPanelUpdateTime = now;
+                            }
+                        }
+                    },
+                });
+                window.knightLoreWorkbench = {
+                    get emulator() {
+                        return emu;
+                    },
+                    pokePresets: KNIGHT_LORE_POKE_PRESETS,
+                    cheatControls: KNIGHT_LORE_CHEAT_CONTROLS,
+                    activePokes: KNIGHT_LORE_ACTIVE_POKES,
+                    pokeAddressBase: KNIGHT_LORE_POKE_ADDRESS_BASE,
+                    inventorySlot1Address: KNIGHT_LORE_INVENTORY_SLOT_1_ADDRESS,
+                    applyPokes: pokes => emu.applyPokes(pokes),
+                    setInventorySlot1: value => emu.applyPokes([{
+                        address: KNIGHT_LORE_INVENTORY_SLOT_1_ADDRESS,
+                        value,
+                        label: 'inventory slot 1 item code',
+                    }]),
+                };
+                bindInventoryPokeControl();
+                bindCheatPokeControls();
+            }
+        </script>
+    </head>
+    <body class="presentation-page hide-deferred-debug stage0-three" onload="startEmulator()">
+        <header id="project-banner" aria-label="Knight Lore 2026">
+            <img src="knight-lore-2026-banner.png?v=knightlore-logo-20260627c" alt="Knight Lore 2026">
+        </header>
+        <div id="validation-workbench">
+            <div id="emulator-column">
+                <div id="jsspeccy"></div>
+                <form id="inventory-poke-panel">
+                    <label for="inventory-item-code">Inventory 1</label>
+                    <input id="inventory-item-code" type="text" inputmode="text" autocomplete="off" placeholder="0x00">
+                    <button id="send-inventory-item-code" type="submit">Send</button>
+                    <label class="cheat-toggle">
+                        <input id="toggle-infinite-lives" type="checkbox" data-cheat-key="infiniteLives" checked>
+                        Infinite lives
+                    </label>
+                    <label class="cheat-toggle">
+                        <input id="toggle-immunity" type="checkbox" data-cheat-key="immunity" checked>
+                        Immunity
+                    </label>
+                    <span id="inventory-poke-status">Address 23516</span>
+                    <span id="cheat-poke-status">Cheats active</span>
+                </form>
+            </div>
+            <div id="knight-lore-stage0"></div>
+            <div id="candidate-panel">
+                <h2>Candidate Dynamic Records</h2>
+                <label>
+                    <input id="show-player-validation" type="checkbox">
+                    Player markers
+                </label>
+                <label>
+                    <input id="show-candidate-validation" type="checkbox" checked>
+                    Checked records
+                </label>
+                <label>
+                    <input id="candidate-select-all" type="checkbox">
+                    All / none
+                </label>
+                <p>
+                    Candidate count: <span id="candidate-count" class="mono">0</span>
+                </p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Draw</th>
+                            <th>#</th>
+                            <th>Address</th>
+                            <th>Sprite</th>
+                            <th>Position XYZ</th>
+                            <th>Dim XYZ</th>
+                            <th>Raw</th>
+                        </tr>
+                    </thead>
+                    <tbody id="candidate-records"></tbody>
+                </table>
+            </div>
+        </div>
+        <footer id="snapshot-note">
+            <p>
+                <strong>Load your own snapshot:</strong>
+                this public page does not include a Knight Lore game snapshot.
+                Use the emulator's <strong>Open file</strong> button to load your own compatible
+                `.z80`, `.szx`, `.sna`, or `.zip` snapshot; the original Spectrum view and
+                the 3D semantic renderer will start working from that loaded game state.
+            </p>
+        </footer>
+        <div id="semantic-debug">
+            <h2>Knight Lore Semantic Debug</h2>
+            <h3>Decoded Player State</h3>
+            <table>
+                <tbody id="semantic-decoded">
+                    <tr><td>Waiting for semantic frame...</td></tr>
+                </tbody>
+            </table>
+            <div id="selected-bytes-section">
+                <h3>Selected Raw Bytes</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Address</th>
+                            <th>Meaning</th>
+                            <th>Hex</th>
+                            <th>Decimal</th>
+                        </tr>
+                    </thead>
+                    <tbody id="semantic-selected-bytes"></tbody>
+                </table>
+            </div>
+            <div id="raw-memory-section">
+                <h3>Raw Work Memory Dump</h3>
+                <table>
+                    <tbody id="semantic-raw-dump"></tbody>
+                </table>
+            </div>
+            <h3>Stage 2 Room Diagnostics</h3>
+            <div id="knight-lore-stage2-diagnostics"></div>
+        </div>
+    </body>
+</html>
