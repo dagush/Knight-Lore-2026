@@ -13,6 +13,7 @@
     "build:static": "mkdir -p dist/jsspeccy && cp static/index.html dist/ && cp static/favicon.ico dist/ && cp README.md dist/ && cp COPYING dist/ && cp CHANGELOG.md dist/ && cp -r static/roms dist/jsspeccy && cp -r static/tapeloaders dist/jsspeccy",
     "build": "npm run build:core && npm run build:wasm:debug && npm run build:js && npm run build:static",
     "build:release": "npm run build:core && npm run build:wasm:release && npm run build:js && npm run build:static",
+    "build:pages": "npm run build && node scripts/build-pages.js",
     "watch": "npm-watch"
   },
   "watch": {

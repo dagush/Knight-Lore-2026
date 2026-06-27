@@ -3,6 +3,7 @@
 
 # Generated build output
 /dist/
+/pages-dist/
 /build/*.js
 /build/*.ts
 /build/*.wat
