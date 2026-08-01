@@ -102,6 +102,11 @@ The renderer contains many empirical decisions, especially for orientation,
 diagonal billboard policies, and special-case objects. Some choices are visual
 or pragmatic rather than recovered original game logic.
 
+## Related Project
+
+For a different playful take on the same classic, see
+[dagush/Knight-Lore-Infinity](https://github.com/dagush/Knight-Lore-Infinity).
+
 ## Sources
 
 - Static and data-format reference:
